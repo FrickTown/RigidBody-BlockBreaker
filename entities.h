@@ -12,7 +12,9 @@ enum CATS {
     BALL = 0x0002,
     GROUND = 0x0004,
     BOX = 0x0008,
-    PADDLE = 0x0016
+    PADDLE = 0x0016,
+    BALLTHRU = 0x0020,
+    RAY = 0x0040,
 };
 
 typedef struct Entity {
@@ -21,7 +23,13 @@ typedef struct Entity {
     b2ShapeId shapeId;
     b2Vec2 extent;
     Texture texture;
+    Color color;
 } Entity;
+
+Entity CreateSolid(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color, b2WorldId worldId);
+Entity CreatePhysicsBox(b2Vec2 pos, b2Vec2 extent, Texture* texture, b2WorldId worldId);
+Entity CreateTarget(b2Vec2 pos, b2Vec2 extent, Texture* texture, b2WorldId worldId);
+
 
 typedef struct Ball {
     b2BodyId bodyId;
@@ -30,13 +38,30 @@ typedef struct Ball {
     b2Vec2 spawn;
     float radius;
     Color color;
-    b2Vec2 *ballHistory[BALL_TRACERS];
+    b2ShapeProxy proxy;
+    b2Vec2 ballHistory[BALL_TRACERS];
 } Ball;
 
 Ball CreateBall(b2Vec2 pos, float radius, Color color, b2WorldId worldId);
-
 void DrawBall(Ball* ball);
-
 void ResetBall(Ball* ball);
+
+typedef struct Paddle {
+    b2BodyId bodyId;
+    b2BodyDef bodyDef;
+    b2ShapeId shapeId;
+    b2Vec2 extent;
+    Texture texture;
+    Color color;
+    bool touchingLimit;
+    float lastTouchTime;
+    float timeDelta;
+    b2ShapeProxy proxy;
+} Paddle;
+
+Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, Texture* texture, Color color, b2WorldId worldId);
+void CheckBallPaddleCollision(Ball* ball, Paddle* paddle);
+void UpdatePaddle(Paddle* paddle, b2Vec2 pos);
+void DrawPaddle(Paddle* paddle);
 
 #endif //ENTITIES_H
