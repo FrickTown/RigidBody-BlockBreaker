@@ -7,6 +7,7 @@
 #include "entities.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 
 /*  #########################
@@ -15,22 +16,27 @@
  *  #########################
 */
 
-Ball CreateBall(b2Vec2 pos, float radius, Color color, b2WorldId worldId) {
+Ball CreateBall(b2Vec2 pos, float radius, Texture* texture, Color color, b2WorldId worldId) {
     b2Circle circle = {b2Vec2_zero, radius};
+
     b2BodyDef ballBodyDef = b2DefaultBodyDef();
     ballBodyDef.type = b2_dynamicBody;
     ballBodyDef.position = pos;
     ballBodyDef.isBullet = true;
+
     b2BodyId bodyId = b2CreateBody(worldId, &ballBodyDef);
     b2ShapeDef ballShapeDef = b2DefaultShapeDef();
     ballShapeDef.enableContactEvents = true;
     ballShapeDef.enableHitEvents = true;
     ballShapeDef.filter.categoryBits = BALL;
     ballShapeDef.filter.maskBits = PADDLE | GROUND | BOX | TARGET;
+
     b2ShapeId shapeId = b2CreateCircleShape(bodyId, &ballShapeDef, &circle);
     b2Shape_SetRestitution(shapeId, 0.95f);
     b2ShapeProxy ballProxy = b2MakeProxy(&circle.center, 1, radius);
+
     Ball ball = {
+        circle,
         bodyId,
         ballBodyDef,
         shapeId,
@@ -38,6 +44,7 @@ Ball CreateBall(b2Vec2 pos, float radius, Color color, b2WorldId worldId) {
         radius,
         color,
         ballProxy,
+        texture,
 {[0 ... (BALL_TRACERS - 1)] = pos}
     };
 
@@ -77,11 +84,17 @@ void CheckBallPaddleCollision(Ball* ball, Paddle* paddle) {
         b2Vec2 ballPos = b2Body_GetPosition(ball->bodyId);
         b2Rot ballRot = b2Body_GetRotation(ball->bodyId);
         b2Vec2 paddlePos = b2Body_GetPosition(paddle->bodyId);
-        b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x, paddlePos.y - paddle->extent.y - ball->radius}, ballRot);
+        if (ballPos.y + ball->radius < paddlePos.y - paddle->extent.y)
+            b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x, paddlePos.y - paddle->extent.y - ball->circle.radius}, ballRot);
     }
 }
 
 void DrawBall(Ball* ball) {
+
+    if (ball->circle.radius != ball->texture->width) {
+        ball->texture->width = ball->circle.radius*2;
+        ball->texture->height = ball->circle.radius*2;
+    }
     // Draw the ball
     b2Vec2 ballPos = b2Body_GetPosition(ball->bodyId);
     Color c = ball->color;
@@ -94,15 +107,29 @@ void DrawBall(Ball* ball) {
     // #############
     for (int k = BALL_TRACERS - 1; k > 0; k--){
         b2Vec2 ballHist = ball->ballHistory[k];
-        float histRad = ball->radius * (1.0f / BALL_TRACERS) * ((float)BALL_TRACERS - (float)k);
+        float histRad = ball->circle.radius * (1.0f / BALL_TRACERS) * ((float)BALL_TRACERS - (float)k);
         DrawCircle((int)ballHist.x, (int)ballHist.y, histRad, c);
         c.b += blueDelta;
         c.a += (alphaDelta);
         ball->ballHistory[k] = ball->ballHistory[k-1];
     }
     ball->ballHistory[0] = ballPos;
-    DrawCircle(ballPos.x, ballPos.y, ball->radius, c);
-    DrawCircleLines(ballPos.x, ballPos.y, ball->radius, WHITE);
+
+    // Actual ball drawing
+    // Drawing colored ball
+    DrawCircle(ballPos.x, ballPos.y, ball->circle.radius, c);
+    DrawCircleLines(ballPos.x, ballPos.y, ball->circle.radius, WHITE);
+
+    // Drawing Texture
+    b2Rot rotation = b2Body_GetRotation(ball->bodyId);
+    float radians = b2Rot_GetAngle(rotation);
+    b2Vec2 world = b2Body_GetWorldCenterOfMass(ball->bodyId);
+    // Raylib rotates textures around the positional point it is given, meaning the top-left corner is the anchor.
+    // Therefore, we need to compensate by drawing a vector from the ball's center to its "top-left" "corner",
+    // rotating it by the rotation of the b2Body, and adding it to the position of the ball's center to
+    // get the appropriate coordinates for Raylib to draw.
+    b2Vec2 adj = b2RotateVector(rotation, (b2Vec2){-ball->radius, -ball->radius});
+    DrawTextureEx(*(ball->texture), (Vector2){world.x + adj.x, world.y + adj.y}, RAD2DEG * radians, 1.0f, WHITE);
 }
 
 void ResetBall(Ball* ball) {
@@ -118,7 +145,7 @@ void ResetBall(Ball* ball) {
  *  #########################
 */
 
-Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, Texture* texture, Color color, b2WorldId worldId) {
+Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* texturePaths[][3], int numTex, float scale, Color color, b2WorldId worldId) {
     Paddle paddle = { 0 };
     paddle.touchingLimit = false;
     paddle.lastTouchTime = 0;
@@ -126,16 +153,23 @@ Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, Texture* te
     paddle.color = color;
 
     b2Vec2 extent;
-    //b2Hull paddleHull = b2ComputeHull()
-
     b2Polygon polygon;
-    if (texture != nullptr) {
-        paddle.texture = *texture;
-        extent = (b2Vec2){ 0.5f * texture->width, 0.5f * texture->height };
-        polygon = b2MakeBox(extent.x, extent.y);
+    if (texturePaths != nullptr) {
+        Texture textures[3] = { 0 };
+        for (int i = 0; i < numTex; i++) {
+
+            char fullPath[32];
+            char* path = *(*texturePaths + i);
+            snprintf(fullPath, sizeof(fullPath), "%s/%s", "assets", path);
+            Image img = LoadImage(fullPath);
+            ImageResize(&img, img.width * scale, img.height * scale);
+            textures[i] = LoadTextureFromImage(img);
+            extent = (b2Vec2){ 0.5f * textures[i].width * 3, 0.5f * textures[i].height };
+            polygon = b2MakeBox(extent.x, extent.y);
+        }
+        memcpy(paddle.textures, textures, numTex * sizeof(Texture));
     }
     else {
-        paddle.texture.id = -1;
         extent = (b2Vec2){ halfWidth, halfHeight };
         polygon = b2MakeBox(halfWidth, halfHeight);
     }
@@ -186,14 +220,76 @@ void DrawPaddle(Paddle* paddle) {
     b2Rot rotation = b2Body_GetRotation(paddle->bodyId);
     float radians = b2Rot_GetAngle(rotation);
     Vector2 ps = {p.x, p.y};
-
-    if (paddle->texture.id == -1) {
+    if (paddle->textures == nullptr) {
         Rectangle rect = {p.x, p.y, paddle->extent.x * 2, paddle->extent.y * 2};
         DrawRectanglePro(rect, (Vector2){0, 0}, RAD2DEG * radians, paddle->color);
     }
     else {
-        DrawTextureEx(paddle->texture, ps, RAD2DEG * radians, 1.0f, WHITE);
+        Texture tex1 = paddle->textures[0];
+        DrawTextureEx(tex1, ps, RAD2DEG * radians, 1.0f, WHITE);
+        Texture tex2 = paddle->textures[1];
+        ps.x += paddle->extent.y*2;
+        DrawTextureEx(tex2, ps, RAD2DEG * radians, 1.0f, WHITE);
+        Texture tex3 = paddle->textures[2];
+        ps.x += paddle->extent.y*2;
+        DrawTextureEx(tex3, ps, RAD2DEG * radians, 1.0f, WHITE);
     }
+}
+
+/*  #########################
+ *       TARGET ENTITY
+ *  CONSTRUCTOR AND FUNCTIONS
+ *  #########################
+*/
+
+Target CreateTarget(b2Vec2 spawn, Texture textures[], float scale, Color color, b2WorldId worldId) {
+    b2Vec2 extent = {textures[0].width * 0.5f * scale, textures[0].height * 0.5f * scale};
+    b2Polygon polygon = b2MakeBox(extent.x, extent.y);
+
+    b2BodyDef targetBodyDef = b2DefaultBodyDef();
+    targetBodyDef.type = b2_staticBody;
+    targetBodyDef.position = spawn;
+
+    b2BodyId targetBodyId = b2CreateBody(worldId, &targetBodyDef);
+    b2ShapeDef targetShapeDef = b2DefaultShapeDef();
+    targetShapeDef.enableContactEvents = true;
+    targetShapeDef.enableHitEvents = true;
+    targetShapeDef.filter.categoryBits = TARGET;
+    targetShapeDef.filter.maskBits = PADDLE | GROUND | BOX | BALL | BALLTHRU;
+
+    b2ShapeId shapeId = b2CreatePolygonShape(targetBodyId, &targetShapeDef, &polygon);
+    b2ShapeProxy proxy = b2MakeProxy(polygon.vertices, polygon.count, 0);
+
+    Target target = {
+        targetBodyId,
+        targetBodyDef,
+        shapeId,
+        extent,
+        proxy,
+        scale,
+        0,
+        {0}
+    };
+    memcpy(target.textures, textures, 2 * sizeof(Texture));
+
+    return target;
+}
+
+void UpdateTarget(Target* target) {
+
+}
+
+void DrawTarget(Target* target) {
+    if (!b2Body_IsEnabled(target->bodyId))
+        return;
+
+    b2Vec2 p = b2Body_GetWorldPoint(target->bodyId, (b2Vec2) { -target->extent.x, -target->extent.y });
+    b2Rot rotation = b2Body_GetRotation(target->bodyId);
+    float radians = b2Rot_GetAngle(rotation);
+    b2Vec2 adj = b2RotateVector(rotation, (b2Vec2){-target->extent.x, -target->extent.y});
+    //Vector2 ps = {p.x + adj.x, p.y + adj.y};
+    Vector2 ps = {p.x, p.y};
+    DrawTextureEx(target->textures[target->state], ps, RAD2DEG * radians, target->scale, WHITE);
 }
 
 /*  #########################
@@ -249,19 +345,23 @@ Entity CreatePhysicsBox(b2Vec2 pos, b2Vec2 extent, Texture* texture, b2WorldId w
     return box;
 }
 
-Entity CreateTarget(b2Vec2 pos, b2Vec2 extent, Texture* texture, b2WorldId worldId) {
-    Entity entity = { 0 };
-    b2Polygon targetPolygon = b2MakeBox(extent.x, extent.y);
-    b2BodyDef bodyDef = b2DefaultBodyDef();
-    bodyDef.type = b2_staticBody;
-    bodyDef.position = pos;
-    entity.bodyId = b2CreateBody(worldId, &bodyDef);
-    entity.texture = *texture;
-    entity.extent = extent;
-    b2ShapeDef shapeDef = b2DefaultShapeDef();
-    shapeDef.enableContactEvents = true;
-    shapeDef.enableHitEvents = true;
-    shapeDef.filter.categoryBits = TARGET;
-    entity.shapeId = b2CreatePolygonShape(entity.bodyId, &shapeDef, &targetPolygon);
-    return entity;
+void DrawEntity(const Entity* entity)
+{
+    if (!b2Body_IsEnabled(entity->bodyId))
+        return;
+    // The boxes were created centered on the bodies, but raylib draws textures starting at the top left corner.
+    // b2Body_GetWorldPoint gets the top left corner of the box accounting for rotation.
+    b2Vec2 p = b2Body_GetWorldPoint(entity->bodyId, (b2Vec2) { -entity->extent.x, -entity->extent.y });
+    b2Rot rotation = b2Body_GetRotation(entity->bodyId);
+    float radians = b2Rot_GetAngle(rotation);
+
+    Vector2 ps = {p.x, p.y};
+    if (entity->texture.id == -1) {
+        Rectangle rect = {p.x, p.y, entity->extent.x * 2, entity->extent.y * 2};
+        DrawRectanglePro(rect, (Vector2){0, 0}, RAD2DEG * radians, entity->color);
+    }
+    else {
+        DrawTextureEx(entity->texture, ps, RAD2DEG * radians, 1.0f, WHITE);
+    }
+
 }

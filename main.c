@@ -4,25 +4,20 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "rlgl.h"
 #include "contact.h"
 #include "entities.h"
 #include "raymath.h"
+#include "arena.h"
+#include "levels.h"
 #if defined(PLATFORM_WEB)
 	#include <emscripten/emscripten.h>
 #endif
 
-
-// This shows how to use Box2D v3 with raylib.
-// It also show how to use Box2D with pixel units.
-
 float InvLerp(float a, float b, float t) {
 	return (t - a) / (b - a);
-}
-
-Vector2 ScreenOrigin(Camera2D camera) {
-	return GetScreenToWorld2D((Vector2){0, 0}, camera);
 }
 
 typedef struct MyRayCastContext
@@ -47,42 +42,22 @@ float PaddleBallCast(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fract
 	return -1;
 }
 
-void DrawEntity(const Entity* entity)
-{
-	if (!b2Body_IsEnabled(entity->bodyId))
-		return;
-	// The boxes were created centered on the bodies, but raylib draws textures starting at the top left corner.
-	// b2Body_GetWorldPoint gets the top left corner of the box accounting for rotation.
-	b2Vec2 p = b2Body_GetWorldPoint(entity->bodyId, (b2Vec2) { -entity->extent.x, -entity->extent.y });
-	b2Rot rotation = b2Body_GetRotation(entity->bodyId);
-	float radians = b2Rot_GetAngle(rotation);
-
-	Vector2 ps = {p.x, p.y};
-	if (entity->texture.id == -1) {
-		Rectangle rect = {p.x, p.y, entity->extent.x * 2, entity->extent.y * 2};
-		DrawRectanglePro(rect, (Vector2){0, 0}, RAD2DEG * radians, entity->color);
-	}
-	else {
-		DrawTextureEx(entity->texture, ps, RAD2DEG * radians, 1.0f, WHITE);
-	}
-
-}
-
 void UpdateDrawFrame(void);
 void InitWorld(void);
+void LoadAssets(void);
+void UnloadAssets(void);
 
-#define GROUND_COUNT 14
 #define BOX_COUNT 10
-#define TARGET_COUNT 10
 
-Texture groundTexture, boxTexture, targetTexture;
-bool pause = true;
+bool pause = false;
 
 int width = 1920, height = 1080;
 int main(void)
 {
+	srand(time(NULL));
 	InitWindow(width, height, "box2d-raylib");
 	InitAudioDevice();
+	LoadAssets();
 	InitWorld();
 	#if defined(PLATFORM_WEB)
 		emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
@@ -97,8 +72,7 @@ int main(void)
 		}
 	#endif
 
-	UnloadTexture(groundTexture);
-	UnloadTexture(boxTexture);
+	UnloadAssets();
 
 	CloseAudioDevice();
 	CloseWindow();
@@ -106,21 +80,69 @@ int main(void)
 	return 0;
 }
 
+Texture groundTexture, boxTexture, targetTexture, ballTexture;
+char* paddleTexturePaths[][3] = {
+	"paddleL.png", "paddleMid.png", "paddleR.png"
+};
+
+Texture wallTextures[4] = { 0 };
+Texture ceilTextures[3] = { 0 };
+Texture backgroundTextures[3] = { 0 };
+Texture limitTextures[2] = { 0 };
+Texture targetTextures[2] = { 0 };
+
+Sound paddleSounds[3] = { nullptr };
+Sound targetSounds[4] = { nullptr };
+
+void LoadAssets(void) {
+	groundTexture = LoadTexture("assets/ground.png");
+	boxTexture = LoadTexture("assets/box.png");
+	targetTexture = LoadTexture("assets/ground.png");
+	ballTexture = LoadTexture("assets/ball.png");
+	targetTexture.height = targetTexture.height * 0.5f;
+	targetTexture.width = targetTexture.width * 0.5f;
+
+	paddleSounds[0] = LoadSound("assets/paddle1.ogg");
+	paddleSounds[1] = LoadSound("assets/paddle2.ogg");
+	paddleSounds[2] = LoadSound("assets/paddle3.ogg");
+
+	targetSounds[0] = LoadSound("assets/target1.ogg");
+	targetSounds[1] = LoadSound("assets/target2.ogg");
+	targetSounds[2] = LoadSound("assets/target3.ogg");
+	targetSounds[3] = LoadSound("assets/target4.ogg");
+
+	wallTextures[0] = LoadTexture("assets/wallL.png");
+	wallTextures[1] = LoadTexture("assets/wallLTop.png");
+	wallTextures[2] = LoadTexture("assets/wallR.png");
+	wallTextures[3] = LoadTexture("assets/wallRTop.png");
+
+	ceilTextures[0] = LoadTexture("assets/ceilL.png");
+	ceilTextures[1] = LoadTexture("assets/ceilMid.png");
+	ceilTextures[2] = LoadTexture("assets/ceilR.png");
+
+	backgroundTextures[0] = LoadTexture("assets/bg_ground.png");
+	backgroundTextures[1] = LoadTexture("assets/bg_view.png");
+	backgroundTextures[2] = LoadTexture("assets/bg_sky.png");
+
+	limitTextures[0] = LoadTexture("assets/limit.png");
+	limitTextures[1] = LoadTexture("assets/limit_end.png");
+
+	targetTextures[0] = LoadTexture("assets/target_rest.png");
+	targetTextures[1] = LoadTexture("assets/target_awake.png");
+}
+
 constexpr bool DEBUG = false;
 
 float lengthUnitsPerMeter;
 b2WorldId worldId;
+Level level;
 Camera2D camera = { 0 };
 Vector2 screenOrigin, screenMax;
 
-Texture groundTexture, boxTexture, targetTexture;
-Sound paddleSound;
-
-Entity targetEntities[TARGET_COUNT] = { 0 }, boxEntities[BOX_COUNT] = { 0 };
+Entity boxEntities[BOX_COUNT] = { 0 };
 Entity leftWall, rightWall, ceiling, limit;
 Ball ballEntity;
 Paddle paddle;
-
 
 Vector2 mousePosition;
 Vector2 lastMousePosition;
@@ -128,6 +150,17 @@ Vector2 mouseDelta;
 
 bool holdingEntity = false;
 Entity* lastHeldEntity;
+
+void UnloadAssets(void) {
+	UnloadTexture(groundTexture);
+	UnloadTexture(boxTexture);
+	for (int i = 0; i < 3; i++) {
+		UnloadSound(paddleSounds[i]);
+		UnloadSound(targetSounds[i]);
+		UnloadTexture(paddle.textures[i]);
+	}
+	UnloadSound(targetSounds[3]);
+}
 
 void InitWorld(void) {
 	camera.target = (Vector2){ width/2.0f, height/2.0f };
@@ -147,23 +180,15 @@ void InitWorld(void) {
 	worldDef.hitEventThreshold = 2.0f * lengthUnitsPerMeter;
 	worldId = b2CreateWorld(&worldDef);
 
-	groundTexture = LoadTexture("assets/ground.png");
-	boxTexture = LoadTexture("assets/box.png");
-	targetTexture = LoadTexture("assets/ground.png");
-	targetTexture.height = targetTexture.height * 0.5f;
-	targetTexture.width = targetTexture.width * 0.5f;
-
-
-	paddleSound = LoadSound("assets/paddle.ogg");
 
 	// Top-left and bottom-right vectors
-	screenOrigin = ScreenOrigin(camera);
+	screenOrigin = GetScreenToWorld2D((Vector2){0, 0}, camera);
 	screenMax = GetScreenToWorld2D((Vector2){width, height}, camera);
 
 	b2Vec2 staticsExtent = { 0.5f * groundTexture.width, 0.5f * groundTexture.height };
 
 	// Defining the solid walls
-	b2Vec2 wallExtent = {groundTexture.width, (screenMax.y - screenOrigin.y) / 2};
+	b2Vec2 wallExtent = {wallTextures[0].width * 0.5f, (screenMax.y - screenOrigin.y) / 2};
 	b2Vec2 lPos = {screenOrigin.x + staticsExtent.x, screenOrigin.y + (screenMax.y - screenOrigin.y) / 2};
 	leftWall = CreateSolid(lPos, wallExtent, nullptr, PURPLE, worldId);
 	b2Vec2 rPos = {screenMax.x - staticsExtent.x, screenOrigin.y + (screenMax.y - screenOrigin.y) / 2};
@@ -183,29 +208,25 @@ void InitWorld(void) {
 		boxEntities[i] = box;
 	}
 
-	b2Vec2 targetExtent = { 0.5f * targetTexture.width, 0.5f * targetTexture.height };
-	for (int i = 0; i < TARGET_COUNT; ++i) {
-		float y = (0) - targetExtent.y + (targetExtent.y * 2 * (i % 2));
-		float x = ((width / 2.0f) - (targetExtent.x * 2) * TARGET_COUNT / 2.0f) + i * (targetExtent.x * 2.0f);
-		targetEntities[i] = CreateTarget((b2Vec2){x, y}, targetExtent, &targetTexture, worldId);
-	}
-
 	ballEntity = CreateBall(
 		(b2Vec2){width / 2.0f, height / 5.0f},
-		0.2f * lengthUnitsPerMeter,
+		0.3f * lengthUnitsPerMeter,
+		&ballTexture,
 		PURPLE,
 		worldId
 		);
 
 	paddle = CreatePaddle(
-		(b2Vec2){width / 2.0f, height * 0.95f}, 1.0f * lengthUnitsPerMeter, 0.2f * lengthUnitsPerMeter,
-		nullptr, BLUE, worldId
+		(b2Vec2){width / 2.0f, height * 0.95f}, 1.2f * lengthUnitsPerMeter, 0.4f * lengthUnitsPerMeter,
+		paddleTexturePaths, 3, 0.8f, BLUE, worldId
 		);
 
+	b2Vec2 limPos = {width / 2.0f, height * 0.85f + limitTextures[0].height / 2.0f};
+	b2Vec2 limExtent = {width, 16};
 	limit = CreateSolid(
-		(b2Vec2){width / 2.0f, height * 0.9f},
-		(b2Vec2){width, 0.05f * lengthUnitsPerMeter},
-		nullptr, BLACK, worldId
+		limPos,
+		limExtent,
+		nullptr, WHITE, worldId
 		);
 
 	b2Filter filt = { 0 };
@@ -218,6 +239,12 @@ void InitWorld(void) {
 	mouseDelta = GetMouseDelta();
 
 	holdingEntity = false;
+
+	float innerWidth = (rPos.x - rightWall.extent.x) - (lPos.x + leftWall.extent.x);
+	float innerHeight =  (limPos.y - limExtent.y) - (ceilPos.y + ceilExtent.y);
+	printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
+	Vector2 innerOrigin = {(lPos.x + leftWall.extent.x), (ceilPos.y + ceilExtent.y)};
+	level = LoadLevel(levelVuve, innerOrigin, targetTextures, worldId);
 }
 
 void UpdateDrawFrame(void) {
@@ -354,7 +381,7 @@ void UpdateDrawFrame(void) {
 	}
 
 	// #################
-	// Target hit logic
+	// Collision logic
 	// #################
 	b2ContactEvents contactEvents = b2World_GetContactEvents(worldId);
 	if (contactEvents.beginCount > 0 || contactEvents.endCount > 0 || contactEvents.hitCount > 0 )
@@ -366,6 +393,7 @@ void UpdateDrawFrame(void) {
 		if (DEBUG) printf("ShapeIDA: %llu, ShapeIDB: %llu\n", b2Shape_GetFilter(hitEvent->shapeIdA).categoryBits, b2Shape_GetFilter(hitEvent->shapeIdB).categoryBits);
 		uint64_t shapeACategory = b2Shape_GetFilter(hitEvent->shapeIdA).categoryBits;
 		uint64_t shapeBCategory = b2Shape_GetFilter(hitEvent->shapeIdB).categoryBits;
+
 		// If BALL (2) collides with TARGET (1)
 		if (abs((int)(shapeACategory - shapeBCategory)) == 1) {
 			b2ShapeId shape;
@@ -374,7 +402,24 @@ void UpdateDrawFrame(void) {
 			else
 				shape = hitEvent->shapeIdA;
 			b2BodyId targetBody = b2Shape_GetBody(shape);
-			b2Body_Disable(targetBody);
+			for (int j = 0; j < level.targetCount; j++) {
+				if (level.targets[j].bodyId.index1 == targetBody.index1) {
+					if (level.targets[j].state == 0) {
+						level.targets[j].state = 1;
+						b2MassData massData = b2Body_GetMassData(targetBody);
+						massData.mass = 0.01f;
+						b2Body_SetMassData(targetBody, massData);
+						b2Body_SetType(targetBody, b2_dynamicBody);
+					}
+					else if (level.targets[j].state == 1)
+						//b2DestroyBody(level.targets[j].bodyId);
+						b2Body_Disable(targetBody);
+				}
+
+			}
+			int r = rand() % 3;
+			SetSoundVolume(targetSounds[r], 1.0f);
+			PlaySound(targetSounds[r]);
 		}
 		// IF BALL (2) collides with PADDLE (22)
 		if (abs((int)(shapeACategory - shapeBCategory)) == 20) {
@@ -389,8 +434,9 @@ void UpdateDrawFrame(void) {
 			float vol = InvLerp(0, 10000, volMod);
 			vol = 1.0f / pow(vol, -0.5);
 			//printf("Volume: %.2f\n", volMod);
-			SetSoundVolume(paddleSound, vol);
-			PlaySound(paddleSound);
+			int r = rand() % 3;
+			SetSoundVolume(paddleSounds[r], vol);
+			PlaySound(paddleSounds[r]);
 		}
 	}
 
@@ -419,15 +465,20 @@ void UpdateDrawFrame(void) {
 
 	// Raycast Collision
 	MyRayCastContext context = {0};
-	context.targetShapeId = paddle.shapeId;
-	b2Vec2 origin = b2Body_GetPosition(ballEntity.bodyId);
-	b2Vec2 translation = b2Body_GetLinearVelocity(ballEntity.bodyId);
-	//translation.x = translation.x * (1.0f / 60.0f);
-	//translation.y = translation.y * (1.0f / 60.0f);
-	b2QueryFilter filter = {RAY, PADDLE};
-	b2World_CastRay(worldId, origin, translation, filter, &PaddleBallCast, &context);
-	if (context.shapeId.index1 != 0)
-		if (DEBUG) printf("Context: ShapeID: %d, Point: (%.2f, %.2f), Normal: (%.2f, %.2f), Frac: (%.2f) \n", context.shapeId.index1, context.point.x, context.point.y, context.normal.x, context.normal.y, context.fraction);
+	b2Vec2 origin = { 0 };
+	b2Vec2 translation = { 0 };
+	if (DEBUG) {
+		MyRayCastContext context = {0};
+		context.targetShapeId = paddle.shapeId;
+		b2Vec2 origin = b2Body_GetPosition(ballEntity.bodyId);
+		b2Vec2 translation = b2Body_GetLinearVelocity(ballEntity.bodyId);
+		//translation.x = translation.x * (1.0f / 60.0f);
+		//translation.y = translation.y * (1.0f / 60.0f);
+		b2QueryFilter filter = {RAY, PADDLE};
+		b2World_CastRay(worldId, origin, translation, filter, &PaddleBallCast, &context);
+		if (context.shapeId.index1 != 0)
+			if (DEBUG) printf("Context: ShapeID: %d, Point: (%.2f, %.2f), Normal: (%.2f, %.2f), Frac: (%.2f) \n", context.shapeId.index1, context.point.x, context.point.y, context.normal.x, context.normal.y, context.fraction);
+	}
 
 	// #############
 	// Drawing logic
@@ -454,21 +505,19 @@ void UpdateDrawFrame(void) {
 		}
 	}
 
-	Vector2 hitPoint = { origin.x + translation.x * context.fraction,  origin.y + translation.y * context.fraction};
-	DrawLine(origin.x, origin.y, hitPoint.x, hitPoint.y, color);
-	DrawLine(hitPoint.x,  hitPoint.y, hitPoint.x + context.normal.x, hitPoint.y + context.normal.y, BLUE);
+	// Ray-casting for landing
+	if (DEBUG) {
+		Vector2 hitPoint = { origin.x + translation.x * context.fraction,  origin.y + translation.y * context.fraction};
+		DrawLine(origin.x, origin.y, hitPoint.x, hitPoint.y, color);
+		DrawLine(hitPoint.x,  hitPoint.y, hitPoint.x + context.normal.x, hitPoint.y + context.normal.y, BLUE);
+	}
 
 	// Draw outer bounds
 
-	DrawEntity(&leftWall);
+	DrawBackground(backgroundTextures, &camera);
 	DrawEntity(&rightWall);
-	DrawEntity(&ceiling);
-
-	// Draw static targets
-	for (int i = 0; i < TARGET_COUNT; ++i)
-	{
-		DrawEntity(targetEntities + i);
-	}
+	DrawWalls(wallTextures, &camera);
+	DrawCeiling(ceilTextures,  &camera);
 
 	// Draw physics-based boxes
 	for (int i = 0; i < BOX_COUNT; ++i)
@@ -476,9 +525,13 @@ void UpdateDrawFrame(void) {
 		DrawEntity(boxEntities + i);
 	}
 
+	DrawLevel(&level);
+
 	DrawBall(&ballEntity);
 	DrawPaddle(&paddle);
-	DrawEntity(&limit);
+
+	//DrawEntity(&limit);
+	DrawLimit(limitTextures, &limit);
 
 	DrawCircle((int)paddleTarget.x, (int)paddleTarget.y, 10.0f, PURPLE);
 	EndMode2D();
