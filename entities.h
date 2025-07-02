@@ -59,6 +59,7 @@ typedef struct Paddle {
     float lastTouchTime;
     float timeDelta;
     b2ShapeProxy proxy;
+    int tilt;
 } Paddle;
 
 Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* texturePaths[][3], int numTex, float scale, Color color, b2WorldId worldId);

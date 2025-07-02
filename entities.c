@@ -84,8 +84,14 @@ void CheckBallPaddleCollision(Ball* ball, Paddle* paddle) {
         b2Vec2 ballPos = b2Body_GetPosition(ball->bodyId);
         b2Rot ballRot = b2Body_GetRotation(ball->bodyId);
         b2Vec2 paddlePos = b2Body_GetPosition(paddle->bodyId);
-        if (ballPos.y + ball->radius < paddlePos.y - paddle->extent.y)
+        if (ballPos.y + ball->radius < paddlePos.y - paddle->extent.y
+            && ballPos.x + ball->radius > paddlePos.x - paddle->extent.x
+            && ballPos.x - ball->radius < paddlePos.x + paddle->extent.x) {
             b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x, paddlePos.y - paddle->extent.y - ball->circle.radius}, ballRot);
+        }
+        //else {
+         //   b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x - paddle->extent.x - ball->circle.radius, paddlePos.y }, ballRot);
+        //}
     }
 }
 
@@ -203,7 +209,7 @@ void UpdatePaddle(Paddle* paddle, b2Vec2 pos) {
     b2Transform target = {
         pos,
         //b2Body_GetRotation(paddle->bodyId)
-        b2MakeRot(0)
+        b2MakeRot(PI/6 * paddle->tilt)
     };
     b2Body_SetTargetTransform(paddle->bodyId, target, 0.1f);
     if (paddle->touchingLimit) {
@@ -217,22 +223,28 @@ void DrawPaddle(Paddle* paddle) {
         return;
 
     b2Vec2 p = b2Body_GetWorldPoint(paddle->bodyId, (b2Vec2) { -paddle->extent.x, -paddle->extent.y });
+    b2Vec2 pos = b2Body_GetPosition(paddle->bodyId);
     b2Rot rotation = b2Body_GetRotation(paddle->bodyId);
     float radians = b2Rot_GetAngle(rotation);
-    Vector2 ps = {p.x, p.y};
+
+    b2Vec2 toLeft = {-paddle->extent.x, -paddle->extent.y};
+    b2Vec2 leftAdj = b2RotateVector(rotation, toLeft);
+    b2Vec2 toMid = {-paddle->extent.y, -paddle->extent.y};
+    b2Vec2 midAdj = b2RotateVector(rotation, toMid);
+    b2Vec2 toRight = {paddle->extent.x / 3.0f, -paddle->extent.y};
+    b2Vec2 rightAdj = b2RotateVector(rotation, toRight);
+
     if (paddle->textures == nullptr) {
         Rectangle rect = {p.x, p.y, paddle->extent.x * 2, paddle->extent.y * 2};
         DrawRectanglePro(rect, (Vector2){0, 0}, RAD2DEG * radians, paddle->color);
     }
     else {
         Texture tex1 = paddle->textures[0];
-        DrawTextureEx(tex1, ps, RAD2DEG * radians, 1.0f, WHITE);
+        DrawTextureEx(tex1, (Vector2){pos.x + leftAdj.x, pos.y + leftAdj.y}, RAD2DEG * radians, 1.0f, WHITE);
         Texture tex2 = paddle->textures[1];
-        ps.x += paddle->extent.y*2;
-        DrawTextureEx(tex2, ps, RAD2DEG * radians, 1.0f, WHITE);
+        DrawTextureEx(tex2, (Vector2){pos.x + midAdj.x, pos.y + midAdj.y}, RAD2DEG * radians, 1.0f, WHITE);
         Texture tex3 = paddle->textures[2];
-        ps.x += paddle->extent.y*2;
-        DrawTextureEx(tex3, ps, RAD2DEG * radians, 1.0f, WHITE);
+        DrawTextureEx(tex3, (Vector2){pos.x + rightAdj.x, pos.y + rightAdj.y}, RAD2DEG * radians, 1.0f, WHITE);
     }
 }
 
@@ -249,15 +261,19 @@ Target CreateTarget(b2Vec2 spawn, Texture textures[], float scale, Color color, 
     b2BodyDef targetBodyDef = b2DefaultBodyDef();
     targetBodyDef.type = b2_staticBody;
     targetBodyDef.position = spawn;
+    targetBodyDef.gravityScale = 0;
+
 
     b2BodyId targetBodyId = b2CreateBody(worldId, &targetBodyDef);
     b2ShapeDef targetShapeDef = b2DefaultShapeDef();
     targetShapeDef.enableContactEvents = true;
     targetShapeDef.enableHitEvents = true;
     targetShapeDef.filter.categoryBits = TARGET;
-    targetShapeDef.filter.maskBits = PADDLE | GROUND | BOX | BALL | BALLTHRU;
+    targetShapeDef.filter.maskBits = PADDLE | GROUND | BOX | BALL | BALLTHRU | TARGET;
+    targetShapeDef.density = 0.1f;
 
     b2ShapeId shapeId = b2CreatePolygonShape(targetBodyId, &targetShapeDef, &polygon);
+    b2Shape_SetRestitution(shapeId, 0.9);
     b2ShapeProxy proxy = b2MakeProxy(polygon.vertices, polygon.count, 0);
 
     Target target = {
@@ -306,26 +322,27 @@ void DrawTarget(Target* target) {
  * @return An Entity in the form of a static block
  */
 Entity CreateSolid(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color, b2WorldId worldId) {
+    b2Polygon groundPolygon = b2MakeBox(extent.x, extent.y);
     Entity entity = { 0 };
+    entity.color = color;
+    entity.extent = extent;
+
     b2BodyDef bodyDef = b2DefaultBodyDef();
     bodyDef.position = pos;
     bodyDef.type = b2_staticBody;
     entity.bodyDef = bodyDef;
-    b2Polygon groundPolygon = b2MakeBox(extent.x, extent.y);
-
-
     entity.bodyId = b2CreateBody(worldId, &bodyDef);
-    entity.extent = extent;
+
     if (texture != nullptr) {
         entity.texture = *texture;
     }
     else {
         entity.texture.id = -1;
     }
-    entity.color = color;
     b2ShapeDef shapeDef = b2DefaultShapeDef();
     shapeDef.filter.categoryBits = GROUND;
     b2ShapeId shapeId = b2CreatePolygonShape(entity.bodyId, &shapeDef, &groundPolygon);
+    b2Shape_SetFriction(shapeId, 0.0f);
     entity.shapeId = shapeId;
     return entity;
 }

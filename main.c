@@ -80,55 +80,8 @@ int main(void)
 	return 0;
 }
 
-Texture groundTexture, boxTexture, targetTexture, ballTexture;
-char* paddleTexturePaths[][3] = {
-	"paddleL.png", "paddleMid.png", "paddleR.png"
-};
-
-Texture wallTextures[4] = { 0 };
-Texture ceilTextures[3] = { 0 };
-Texture backgroundTextures[3] = { 0 };
-Texture limitTextures[2] = { 0 };
-Texture targetTextures[2] = { 0 };
-
-Sound paddleSounds[3] = { nullptr };
-Sound targetSounds[4] = { nullptr };
-
 void LoadAssets(void) {
-	groundTexture = LoadTexture("assets/ground.png");
-	boxTexture = LoadTexture("assets/box.png");
-	targetTexture = LoadTexture("assets/ground.png");
-	ballTexture = LoadTexture("assets/ball.png");
-	targetTexture.height = targetTexture.height * 0.5f;
-	targetTexture.width = targetTexture.width * 0.5f;
 
-	paddleSounds[0] = LoadSound("assets/paddle1.ogg");
-	paddleSounds[1] = LoadSound("assets/paddle2.ogg");
-	paddleSounds[2] = LoadSound("assets/paddle3.ogg");
-
-	targetSounds[0] = LoadSound("assets/target1.ogg");
-	targetSounds[1] = LoadSound("assets/target2.ogg");
-	targetSounds[2] = LoadSound("assets/target3.ogg");
-	targetSounds[3] = LoadSound("assets/target4.ogg");
-
-	wallTextures[0] = LoadTexture("assets/wallL.png");
-	wallTextures[1] = LoadTexture("assets/wallLTop.png");
-	wallTextures[2] = LoadTexture("assets/wallR.png");
-	wallTextures[3] = LoadTexture("assets/wallRTop.png");
-
-	ceilTextures[0] = LoadTexture("assets/ceilL.png");
-	ceilTextures[1] = LoadTexture("assets/ceilMid.png");
-	ceilTextures[2] = LoadTexture("assets/ceilR.png");
-
-	backgroundTextures[0] = LoadTexture("assets/bg_ground.png");
-	backgroundTextures[1] = LoadTexture("assets/bg_view.png");
-	backgroundTextures[2] = LoadTexture("assets/bg_sky.png");
-
-	limitTextures[0] = LoadTexture("assets/limit.png");
-	limitTextures[1] = LoadTexture("assets/limit_end.png");
-
-	targetTextures[0] = LoadTexture("assets/target_rest.png");
-	targetTextures[1] = LoadTexture("assets/target_awake.png");
 }
 
 constexpr bool DEBUG = false;
@@ -231,7 +184,7 @@ void InitWorld(void) {
 
 	b2Filter filt = { 0 };
 	filt.categoryBits = BALLTHRU;
-	filt.maskBits = PADDLE;
+	filt.maskBits = PADDLE | TARGET;
 	b2Shape_SetFilter(limit.shapeId, filt);
 
 	mousePosition = GetMousePosition();
@@ -244,7 +197,7 @@ void InitWorld(void) {
 	float innerHeight =  (limPos.y - limExtent.y) - (ceilPos.y + ceilExtent.y);
 	printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
 	Vector2 innerOrigin = {(lPos.x + leftWall.extent.x), (ceilPos.y + ceilExtent.y)};
-	level = LoadLevel(levelVuve, innerOrigin, targetTextures, worldId);
+	level = LoadLevel(levelPillars, innerOrigin, groundTexture, targetTextures, worldId);
 }
 
 void UpdateDrawFrame(void) {
@@ -292,10 +245,12 @@ void UpdateDrawFrame(void) {
 	b2Vec2 VectorsToDraw[10] = {0};
 	int VecIndex = 0;
 
+	paddle.tilt = 0;
 	Color color = RED;
 	if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
 		// Mouse left allows picking up a box
 		if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !holdingEntity) {
+			paddle.tilt = -1;
 			// Loop through all the boxes
 			for (int i = 0; i < BOX_COUNT; ++i) {
 				Entity* entity = boxEntities + i;
@@ -314,6 +269,7 @@ void UpdateDrawFrame(void) {
 		}
 		// Mouse right creates a radial force-field that pushes the boxes away based on the distance to the mouse
 		else if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+			paddle.tilt = 1;
 			for (int i = 0; i < BOX_COUNT; ++i) {
 				Entity* entity = boxEntities + i;
 				b2Vec2 pob = b2Body_GetLocalPoint(entity->bodyId, mVec);
@@ -406,10 +362,14 @@ void UpdateDrawFrame(void) {
 				if (level.targets[j].bodyId.index1 == targetBody.index1) {
 					if (level.targets[j].state == 0) {
 						level.targets[j].state = 1;
-						b2MassData massData = b2Body_GetMassData(targetBody);
-						massData.mass = 0.01f;
-						b2Body_SetMassData(targetBody, massData);
+						//b2MassData massData = b2Body_GetMassData(targetBody);
+						//massData.mass = 5.0f;
+						//b2Body_SetMassData(targetBody, massData);
 						b2Body_SetType(targetBody, b2_dynamicBody);
+						b2Vec2 ballVel = b2Body_GetLinearVelocity(ballEntity.bodyId);
+						ballVel.x *= -1;
+						ballVel.y *= -1;
+						b2Body_SetLinearVelocity(targetBody, ballVel);
 					}
 					else if (level.targets[j].state == 1)
 						//b2DestroyBody(level.targets[j].bodyId);
