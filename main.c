@@ -11,6 +11,7 @@
 #include "entities.h"
 #include "raymath.h"
 #include "arena.h"
+#include "interface.h"
 #include "levels.h"
 #if defined(PLATFORM_WEB)
 	#include <emscripten/emscripten.h>
@@ -79,9 +80,60 @@ int main(void)
 
 	return 0;
 }
+Texture groundTexture, boxTexture, targetTexture, ballTexture;
+char* paddleTexturePaths[][3] = {
+	"paddleL.png", "paddleMid.png", "paddleR.png"
+};
+
+Texture wallTextures[4];
+Texture ceilTextures[3];
+Texture backgroundTextures[3];
+Texture limitTextures[2];
+Texture targetTextures[2];
+
+Sound paddleSounds[3];
+Sound targetSounds[4];
+
+Texture interfaceTextures[2];
 
 void LoadAssets(void) {
+	groundTexture = LoadTexture("assets/block_idle.png");
+	boxTexture = LoadTexture("assets/box.png");
+	targetTexture = LoadTexture("assets/ground.png");
+	ballTexture = LoadTexture("assets/ball.png");
+	targetTexture.height = targetTexture.height * 0.5f;
+	targetTexture.width = targetTexture.width * 0.5f;
 
+	paddleSounds[0] = LoadSound("assets/paddle1.ogg");
+	paddleSounds[1] = LoadSound("assets/paddle2.ogg");
+	paddleSounds[2] = LoadSound("assets/paddle3.ogg");
+
+	targetSounds[0] = LoadSound("assets/target1.ogg");
+	targetSounds[1] = LoadSound("assets/target2.ogg");
+	targetSounds[2] = LoadSound("assets/target3.ogg");
+	targetSounds[3] = LoadSound("assets/target4.ogg");
+
+	wallTextures[0] = LoadTexture("assets/wallL.png");
+	wallTextures[1] = LoadTexture("assets/wallLTop.png");
+	wallTextures[2] = LoadTexture("assets/wallR.png");
+	wallTextures[3] = LoadTexture("assets/wallRTop.png");
+
+	ceilTextures[0] = LoadTexture("assets/ceilL.png");
+	ceilTextures[1] = LoadTexture("assets/ceilMid.png");
+	ceilTextures[2] = LoadTexture("assets/ceilR.png");
+
+	backgroundTextures[0] = LoadTexture("assets/bg_ground.png");
+	backgroundTextures[1] = LoadTexture("assets/bg_view.png");
+	backgroundTextures[2] = LoadTexture("assets/bg_sky.png");
+
+	targetTextures[0] = LoadTexture("assets/target_rest.png");
+	targetTextures[1] = LoadTexture("assets/target_awake.png");
+
+	limitTextures[0] = LoadTexture("assets/limit.png");
+	limitTextures[1] = LoadTexture("assets/limit_end.png");
+
+	interfaceTextures[0] = LoadTexture("assets/UI/button_color.png");
+	interfaceTextures[1] = LoadTexture("assets/UI/button_gray.png");
 }
 
 constexpr bool DEBUG = false;
@@ -91,9 +143,10 @@ b2WorldId worldId;
 Level level;
 Camera2D camera = { 0 };
 Vector2 screenOrigin, screenMax;
+PauseMenu pauseMenu;
 
 Entity boxEntities[BOX_COUNT] = { 0 };
-Entity leftWall, rightWall, ceiling, limit;
+Entity leftWall, rightWall, ceiling, limit, deathZone;
 Ball ballEntity;
 Paddle paddle;
 
@@ -169,11 +222,13 @@ void InitWorld(void) {
 		worldId
 		);
 
+	// Create the paddle
 	paddle = CreatePaddle(
 		(b2Vec2){width / 2.0f, height * 0.95f}, 1.2f * lengthUnitsPerMeter, 0.4f * lengthUnitsPerMeter,
 		paddleTexturePaths, 3, 0.8f, BLUE, worldId
 		);
 
+	// Create the paddle's movement limit
 	b2Vec2 limPos = {width / 2.0f, height * 0.85f + limitTextures[0].height / 2.0f};
 	b2Vec2 limExtent = {width, 16};
 	limit = CreateSolid(
@@ -187,16 +242,25 @@ void InitWorld(void) {
 	filt.maskBits = PADDLE | TARGET;
 	b2Shape_SetFilter(limit.shapeId, filt);
 
+	float innerWidth = (rPos.x - rightWall.extent.x) - (lPos.x + leftWall.extent.x);
+	float innerHeight =  (limPos.y - limExtent.y) - (ceilPos.y + ceilExtent.y);
+	Vector2 innerOrigin = {(lPos.x + leftWall.extent.x), (ceilPos.y + ceilExtent.y)};
+
+	float dzHeight = 100;
+	b2Vec2 dzExtent = {innerWidth / 2, dzHeight};
+	b2Vec2 dzPos = {innerOrigin.x + dzExtent.x, screenMax.y - dzExtent.y};
+	deathZone = CreateDeathZone(dzPos, dzExtent, nullptr, WHITE, worldId);
+
 	mousePosition = GetMousePosition();
 	lastMousePosition = GetMousePosition();
 	mouseDelta = GetMouseDelta();
 
 	holdingEntity = false;
 
-	float innerWidth = (rPos.x - rightWall.extent.x) - (lPos.x + leftWall.extent.x);
-	float innerHeight =  (limPos.y - limExtent.y) - (ceilPos.y + ceilExtent.y);
+	Vector2 center = {screenMax.x - (screenMax.x - screenOrigin.x) / 2, screenMax.y - (screenMax.y - screenOrigin.y) / 2};
+	Rectangle pauseMenuBounds = {center.x - innerWidth  / 8, center.y - innerHeight  / 2, innerWidth / 4, innerHeight};
+	pauseMenu = CreatePauseMenu(pauseMenuBounds, interfaceTextures);
 	printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
-	Vector2 innerOrigin = {(lPos.x + leftWall.extent.x), (ceilPos.y + ceilExtent.y)};
 	level = LoadLevel(levelPillars, innerOrigin, groundTexture, targetTextures, worldId);
 }
 
@@ -314,6 +378,13 @@ void UpdateDrawFrame(void) {
 		//b2Vec2 releaseVelocity = {mouseDelta.x * 32.0f, mouseDelta.y * 32.0f};
 		//releaseVelocity = (b2MakeRot(degreesToRadians(camera.rotation)), releaseVelocity);
 		//b2Body_SetLinearVelocity(lastHeldEntity->bodyId, releaseVelocity);
+	}
+
+	// Logic for killing a ball if it hits death zone
+	b2Vec2 ballPos = b2Body_GetPosition(ballEntity.bodyId);
+	b2Vec2 ballToDeath = b2Body_GetLocalPoint(deathZone.bodyId, ballPos);
+	if (fabsf(ballToDeath.x) <= deathZone.extent.x && fabsf(ballToDeath.y) <= deathZone.extent.y) {
+		ResetBall(&ballEntity);
 	}
 
 	// Prevent high-velocity shots by having cursor above limit
@@ -475,7 +546,8 @@ void UpdateDrawFrame(void) {
 	// Draw outer bounds
 
 	DrawBackground(backgroundTextures, &camera);
-	DrawEntity(&rightWall);
+	//DrawEntity(&rightWall);
+
 	DrawWalls(wallTextures, &camera);
 	DrawCeiling(ceilTextures,  &camera);
 
@@ -488,11 +560,12 @@ void UpdateDrawFrame(void) {
 	DrawLevel(&level);
 
 	DrawBall(&ballEntity);
+	DrawEntity(&deathZone);
 	DrawPaddle(&paddle);
-
 	//DrawEntity(&limit);
 	DrawLimit(limitTextures, &limit);
-
+	if (pause)
+		DrawPauseMenu(&pauseMenu);
 	DrawCircle((int)paddleTarget.x, (int)paddleTarget.y, 10.0f, PURPLE);
 	EndMode2D();
 	EndDrawing();

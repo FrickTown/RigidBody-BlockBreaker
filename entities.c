@@ -80,7 +80,8 @@ void CheckBallPaddleCollision(Ball* ball, Paddle* paddle) {
     input.maxFraction = 1.0f;
 
     b2TOIOutput output = b2TimeOfImpact(&input);
-    if ((output.state == b2_toiStateHit || output.state == b2_toiStateOverlapped) && output.fraction < 1.0f) {
+    if ((output.state == b2_toiStateHit || output.state == b2_toiStateOverlapped)
+        && output.fraction < 1.0f && b2Body_GetLinearVelocity(ball->bodyId).y > 0.0f) {
         b2Vec2 ballPos = b2Body_GetPosition(ball->bodyId);
         b2Rot ballRot = b2Body_GetRotation(ball->bodyId);
         b2Vec2 paddlePos = b2Body_GetPosition(paddle->bodyId);
@@ -196,6 +197,7 @@ Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* textu
     shapeDef.enableContactEvents = true;
     shapeDef.enableHitEvents = true;
     shapeDef.filter.categoryBits = PADDLE;
+    shapeDef.filter.maskBits = BALLTHRU | BALL | BOX | GROUND;
     b2ShapeId shapeId = b2CreatePolygonShape(bodyId, &shapeDef, &polygon);
     paddle.shapeId = shapeId;
 
@@ -343,6 +345,32 @@ Entity CreateSolid(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color, b2W
     shapeDef.filter.categoryBits = GROUND;
     b2ShapeId shapeId = b2CreatePolygonShape(entity.bodyId, &shapeDef, &groundPolygon);
     b2Shape_SetFriction(shapeId, 0.0f);
+    entity.shapeId = shapeId;
+    return entity;
+}
+
+Entity CreateDeathZone(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color, b2WorldId worldId) {
+    b2Polygon deathPolygon = b2MakeBox(extent.x, extent.y);
+    Entity entity = { 0 };
+    entity.color = color;
+    entity.extent = extent;
+
+    b2BodyDef bodyDef = b2DefaultBodyDef();
+    bodyDef.position = pos;
+    bodyDef.type = b2_staticBody;
+    entity.bodyDef = bodyDef;
+    entity.bodyId = b2CreateBody(worldId, &bodyDef);
+
+    if (texture != nullptr) {
+        entity.texture = *texture;
+    }
+    else {
+        entity.texture.id = -1;
+    }
+    b2ShapeDef shapeDef = b2DefaultShapeDef();
+    shapeDef.filter.categoryBits = DEATH;
+    shapeDef.filter.maskBits = BALL;
+    b2ShapeId shapeId = b2CreatePolygonShape(entity.bodyId, &shapeDef, &deathPolygon);
     entity.shapeId = shapeId;
     return entity;
 }

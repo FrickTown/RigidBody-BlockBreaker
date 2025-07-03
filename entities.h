@@ -15,6 +15,7 @@ enum CATS {
     PADDLE = 0x0016,
     BALLTHRU = 0x0020,
     RAY = 0x0040,
+    DEATH = 0x0080,
 };
 
 typedef struct Entity {
@@ -27,6 +28,7 @@ typedef struct Entity {
 } Entity;
 
 Entity CreateSolid(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color, b2WorldId worldId);
+Entity CreateDeathZone(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color, b2WorldId worldId);
 Entity CreatePhysicsBox(b2Vec2 pos, b2Vec2 extent, Texture* texture, b2WorldId worldId);
 void DrawEntity(const Entity* entity);
 

@@ -79,3 +79,7 @@ void DrawLimit(Texture textures[], Entity* limit) {
         DrawTextureEx(textures[0], (Vector2){x0 + i * texWidth, yPos}, 0, 1.0f, WHITE);
     }
 }
+
+void DrawDeathZone(Texture textures[], Entity* deathZone) {
+
+}
