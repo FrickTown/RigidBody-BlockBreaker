@@ -32,7 +32,6 @@ Entity CreateDeathZone(b2Vec2 pos, b2Vec2 extent, Texture* texture, Color color,
 Entity CreatePhysicsBox(b2Vec2 pos, b2Vec2 extent, Texture* texture, b2WorldId worldId);
 void DrawEntity(const Entity* entity);
 
-
 typedef struct Ball {
     b2Circle circle;
     b2BodyId bodyId;
@@ -45,6 +44,17 @@ typedef struct Ball {
     Texture* texture;
     b2Vec2 ballHistory[BALL_TRACERS];
 } Ball;
+
+typedef struct BallRayCastContext
+{
+    b2ShapeId shapeId;
+    b2ShapeId targetShapeId;
+    b2Vec2 point;
+    b2Vec2 normal;
+    float fraction;
+} BallRayCastContext;
+
+b2CastResultFcn BallRayResultFcn;
 
 Ball CreateBall(b2Vec2 pos, float radius, Texture* texture, Color color, b2WorldId worldId);
 void DrawBall(Ball* ball);
@@ -65,7 +75,7 @@ typedef struct Paddle {
 } Paddle;
 
 Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* texturePaths[][3], int numTex, float scale, Color color, b2WorldId worldId);
-void CheckBallPaddleCollision(Ball* ball, Paddle* paddle);
+void CheckBallPaddleCollision(Ball* ball, Paddle* paddle, BallRayCastContext* context);
 void UpdatePaddle(Paddle* paddle, b2Vec2 pos);
 void DrawPaddle(Paddle* paddle);
 

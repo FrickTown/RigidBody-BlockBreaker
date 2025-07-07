@@ -2,3 +2,5 @@
 build
 .idea
 CMakeLists.txt.bak
+.cache
+*.png~

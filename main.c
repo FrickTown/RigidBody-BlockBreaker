@@ -4,12 +4,11 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "rlgl.h"
-#include "contact.h"
 #include "entities.h"
-#include "raymath.h"
 #include "arena.h"
 #include "interface.h"
 #include "levels.h"
@@ -21,36 +20,21 @@ float InvLerp(float a, float b, float t) {
 	return (t - a) / (b - a);
 }
 
-typedef struct MyRayCastContext
-{
-	b2ShapeId shapeId;
-	b2ShapeId targetShapeId;
-	b2Vec2 point;
-	b2Vec2 normal;
-	float fraction;
-} MyRayCastContext;
 
-b2CastResultFcn PaddleBallCast;
-float PaddleBallCast(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fraction, void* context ) {
-	MyRayCastContext* myContext = context;
-	myContext->shapeId = shapeId;
-	myContext->point = point;
-	myContext->normal = normal;
-	myContext->fraction = fraction;
-	if (shapeId.index1 == myContext->targetShapeId.index1) {
-		return fraction;
-	}
-	return -1;
-}
 
-void UpdateDrawFrame(void);
+void Update(void);
+void DrawFrame(void);
 void InitWorld(void);
 void LoadAssets(void);
 void UnloadAssets(void);
 
-#define BOX_COUNT 10
 
-bool pause = false;
+void CoreLoop(void){
+	Update();
+	DrawFrame();
+}
+
+#define BOX_COUNT 10
 
 int width = 1920, height = 1080;
 int main(void)
@@ -61,7 +45,7 @@ int main(void)
 	LoadAssets();
 	InitWorld();
 	#if defined(PLATFORM_WEB)
-		emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
+		emscripten_set_main_loop(CoreLoop, 0, 1);
 	#else
 		SetTargetFPS(60);   // Set our game to run at 60 frames-per-second
 	//--------------------------------------------------------------------------------------
@@ -69,7 +53,7 @@ int main(void)
 		// Main game loop
 		while (!WindowShouldClose())    // Detect window close button or ESC key
 		{
-			UpdateDrawFrame();
+			CoreLoop();
 		}
 	#endif
 
@@ -95,6 +79,8 @@ Sound paddleSounds[3];
 Sound targetSounds[4];
 
 Texture interfaceTextures[2];
+
+Font menuFont;
 
 void LoadAssets(void) {
 	groundTexture = LoadTexture("assets/block_idle.png");
@@ -134,16 +120,23 @@ void LoadAssets(void) {
 
 	interfaceTextures[0] = LoadTexture("assets/UI/button_color.png");
 	interfaceTextures[1] = LoadTexture("assets/UI/button_gray.png");
+
+	menuFont = LoadFont("assets/UI/Kenney Future Narrow.ttf");
 }
 
-constexpr bool DEBUG = false;
+constexpr bool DEBUG = true;
 
 float lengthUnitsPerMeter;
 b2WorldId worldId;
 Level level;
 Camera2D camera = { 0 };
 Vector2 screenOrigin, screenMax;
-PauseMenu pauseMenu;
+
+GameState gameState = {
+	.paused = false,
+};
+
+PauseMenu* pauseMenu;
 
 Entity boxEntities[BOX_COUNT] = { 0 };
 Entity leftWall, rightWall, ceiling, limit, deathZone;
@@ -151,11 +144,19 @@ Ball ballEntity;
 Paddle paddle;
 
 Vector2 mousePosition;
-Vector2 lastMousePosition;
 Vector2 mouseDelta;
+
+Vector2 mouseInWorld;
+b2Vec2 mVec;
+b2Vec2 paddleTarget;
 
 bool holdingEntity = false;
 Entity* lastHeldEntity;
+
+BallRayCastContext context = {0};
+b2Vec2 origin = { 0 };
+b2Vec2 translation = { 0 };
+b2Vec2 VectorsToDraw[10] = { 0 };
 
 void UnloadAssets(void) {
 	UnloadTexture(groundTexture);
@@ -252,22 +253,22 @@ void InitWorld(void) {
 	deathZone = CreateDeathZone(dzPos, dzExtent, nullptr, WHITE, worldId);
 
 	mousePosition = GetMousePosition();
-	lastMousePosition = GetMousePosition();
 	mouseDelta = GetMouseDelta();
 
 	holdingEntity = false;
 
 	Vector2 center = {screenMax.x - (screenMax.x - screenOrigin.x) / 2, screenMax.y - (screenMax.y - screenOrigin.y) / 2};
 	Rectangle pauseMenuBounds = {center.x - innerWidth  / 8, center.y - innerHeight  / 2, innerWidth / 4, innerHeight};
-	pauseMenu = CreatePauseMenu(pauseMenuBounds, interfaceTextures);
+	pauseMenu = CreatePauseMenu(&gameState, pauseMenuBounds, &menuFont, interfaceTextures);
 	printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
 	level = LoadLevel(levelPillars, innerOrigin, groundTexture, targetTextures, worldId);
 }
 
-void UpdateDrawFrame(void) {
+void Update(void) {
+	mouseInWorld = GetScreenToWorld2D(mousePosition, camera);
 	if (IsKeyPressed(KEY_P))
 	{
-		pause = !pause;
+		gameState.paused = !gameState.paused;
 	}
 
 	// Reset boxes and ball
@@ -303,10 +304,11 @@ void UpdateDrawFrame(void) {
 	mousePosition = GetMousePosition();
 	mouseDelta = GetMouseDelta();
 
-	Vector2 mouseInWorld = GetScreenToWorld2D(mousePosition, camera);
-	b2Vec2 mVec = {mouseInWorld.x, mouseInWorld.y};
+	mouseInWorld = GetScreenToWorld2D(mousePosition, camera);
+	mVec = (b2Vec2){mouseInWorld.x, mouseInWorld.y};
 
-	b2Vec2 VectorsToDraw[10] = {0};
+	memset(VectorsToDraw, 0, sizeof VectorsToDraw);
+
 	int VecIndex = 0;
 
 	paddle.tilt = 0;
@@ -374,10 +376,10 @@ void UpdateDrawFrame(void) {
 	// Logic for releasing a held box
 	if (IsMouseButtonUp(MOUSE_BUTTON_LEFT) && holdingEntity && lastHeldEntity != NULL) {
 		holdingEntity = false;
-		if (DEBUG) printf("(%.2f, %.2f)\n", mouseDelta.x * 1280.0f, mouseDelta.y * 1280.0f);
-		//b2Vec2 releaseVelocity = {mouseDelta.x * 32.0f, mouseDelta.y * 32.0f};
-		//releaseVelocity = (b2MakeRot(degreesToRadians(camera.rotation)), releaseVelocity);
-		//b2Body_SetLinearVelocity(lastHeldEntity->bodyId, releaseVelocity);
+	}
+
+	if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+		PauseMenuHandleClick(pauseMenu, mouseInWorld);
 	}
 
 	// Logic for killing a ball if it hits death zone
@@ -388,7 +390,7 @@ void UpdateDrawFrame(void) {
 	}
 
 	// Prevent high-velocity shots by having cursor above limit
-	b2Vec2 paddleTarget = mVec;
+	paddleTarget = mVec;
 	if (paddleTarget.y < height / 2.0f) {
 		paddleTarget.y = height / 2.0f;
 	}
@@ -398,10 +400,25 @@ void UpdateDrawFrame(void) {
 		paddleTarget.y = limitBottom + paddle.extent.y;
 	}
 
-	UpdatePaddle(&paddle, paddleTarget);
-	CheckBallPaddleCollision(&ballEntity, &paddle);
+	// Raycast Collision
 
-	if (pause == false)
+	memset(&context, 0, sizeof(context));
+	if (DEBUG) {
+		context.targetShapeId = paddle.shapeId;
+		origin = b2Body_GetPosition(ballEntity.bodyId);
+		translation = b2MulSV(100000, b2Normalize(b2Body_GetLinearVelocity(ballEntity.bodyId)));
+		//translation.x = translation.x * (1.0f / 60.0f);
+		//translation.y = translation.y * (1.0f / 60.0f);
+		b2QueryFilter filter = {RAY, PADDLE};
+		b2World_CastRay(worldId, origin, translation, filter, &BallRayResultFcn, &context);
+		if (context.shapeId.index1 == paddle.shapeId.index1)
+			if (DEBUG) printf("Context: ShapeID: %d, Point: (%.2f, %.2f), Normal: (%.2f, %.2f), Frac: (%.8f) \n", context.shapeId.index1, context.point.x, context.point.y, context.normal.x, context.normal.y, context.fraction);
+	}
+
+	UpdatePaddle(&paddle, paddleTarget);
+	CheckBallPaddleCollision(&ballEntity, &paddle, &context);
+
+	if (gameState.paused == false)
 	{
 		float deltaTime = GetFrameTime();
 		b2World_Step(worldId, deltaTime, 16);
@@ -417,7 +434,7 @@ void UpdateDrawFrame(void) {
 	for (int i = 0; i < contactEvents.hitCount; ++i)
 	{
 		b2ContactHitEvent* hitEvent = contactEvents.hitEvents + i;
-		if (DEBUG) printf("ShapeIDA: %llu, ShapeIDB: %llu\n", b2Shape_GetFilter(hitEvent->shapeIdA).categoryBits, b2Shape_GetFilter(hitEvent->shapeIdB).categoryBits);
+		if (DEBUG) printf("ShapeIDA: %lu, ShapeIDB: %lu\n", b2Shape_GetFilter(hitEvent->shapeIdA).categoryBits, b2Shape_GetFilter(hitEvent->shapeIdB).categoryBits);
 		uint64_t shapeACategory = b2Shape_GetFilter(hitEvent->shapeIdA).categoryBits;
 		uint64_t shapeBCategory = b2Shape_GetFilter(hitEvent->shapeIdB).categoryBits;
 
@@ -444,7 +461,7 @@ void UpdateDrawFrame(void) {
 					}
 					else if (level.targets[j].state == 1)
 						//b2DestroyBody(level.targets[j].bodyId);
-						b2Body_Disable(targetBody);
+							b2Body_Disable(targetBody);
 				}
 
 			}
@@ -493,29 +510,13 @@ void UpdateDrawFrame(void) {
 			paddle.touchingLimit = false;
 		}
 	}
+}
 
-	// Raycast Collision
-	MyRayCastContext context = {0};
-	b2Vec2 origin = { 0 };
-	b2Vec2 translation = { 0 };
-	if (DEBUG) {
-		MyRayCastContext context = {0};
-		context.targetShapeId = paddle.shapeId;
-		b2Vec2 origin = b2Body_GetPosition(ballEntity.bodyId);
-		b2Vec2 translation = b2Body_GetLinearVelocity(ballEntity.bodyId);
-		//translation.x = translation.x * (1.0f / 60.0f);
-		//translation.y = translation.y * (1.0f / 60.0f);
-		b2QueryFilter filter = {RAY, PADDLE};
-		b2World_CastRay(worldId, origin, translation, filter, &PaddleBallCast, &context);
-		if (context.shapeId.index1 != 0)
-			if (DEBUG) printf("Context: ShapeID: %d, Point: (%.2f, %.2f), Normal: (%.2f, %.2f), Frac: (%.2f) \n", context.shapeId.index1, context.point.x, context.point.y, context.normal.x, context.normal.y, context.fraction);
-	}
-
+void DrawFrame(void){
 	// #############
 	// Drawing logic
 	// #############
 
-	lastMousePosition = mousePosition;
 	ClearBackground(DARKGRAY);
 	BeginDrawing();
 
@@ -524,29 +525,35 @@ void UpdateDrawFrame(void) {
 	DrawText(debugText, 0, 0, 25, BLACK);
 	BeginMode2D(camera);
 	// Draw cursor
-	DrawCircle((int)mouseInWorld.x, (int)mouseInWorld.y, 10.0f, color);
+	DrawCircle((int)mouseInWorld.x, (int)mouseInWorld.y, 10.0f, RED);
 
 
 	// Draw force-field vectors (debugging)
-	for (int i = 0; i < BOX_COUNT; ++i) {
-		b2Vec2* vec = VectorsToDraw + i;
-		if (vec->x != 0 && vec->y != 0) {
-			rlSetLineWidth(3);
-			DrawLine(mVec.x, mVec.y, vec->x, vec->y, color);
-		}
-	}
-
-	// Ray-casting for landing
 	if (DEBUG) {
-		Vector2 hitPoint = { origin.x + translation.x * context.fraction,  origin.y + translation.y * context.fraction};
-		DrawLine(origin.x, origin.y, hitPoint.x, hitPoint.y, color);
-		DrawLine(hitPoint.x,  hitPoint.y, hitPoint.x + context.normal.x, hitPoint.y + context.normal.y, BLUE);
+		for (int i = 0; i < BOX_COUNT; ++i) {
+			b2Vec2* vec = VectorsToDraw + i;
+			if (vec->x != 0 && vec->y != 0) {
+				rlSetLineWidth(3);
+				DrawLine(mVec.x, mVec.y, vec->x, vec->y, BLUE);
+			}
+		}
 	}
 
 	// Draw outer bounds
 
 	DrawBackground(backgroundTextures, &camera);
 	//DrawEntity(&rightWall);
+
+	// Ray-casting for landing
+	if (context.shapeId.index1 == paddle.shapeId.index1) {
+		Vector2 hitPoint = { origin.x + translation.x * context.fraction,  origin.y + translation.y * context.fraction};
+		DrawLine(origin.x, origin.y, hitPoint.x, hitPoint.y, RED);
+		DrawLine(hitPoint.x,  hitPoint.y, hitPoint.x + context.normal.x, hitPoint.y + context.normal.y, BLUE);
+        b2Vec2 adjustment = b2MulSV(ballEntity.radius, context.normal);
+        b2Vec2 adjPos = b2Add(context.point, adjustment);
+		rlSetLineWidth(3.0f);
+		DrawLine(context.point.x, context.point.y, adjPos.x, adjPos.y, PINK);
+	}
 
 	DrawWalls(wallTextures, &camera);
 	DrawCeiling(ceilTextures,  &camera);
@@ -564,8 +571,8 @@ void UpdateDrawFrame(void) {
 	DrawPaddle(&paddle);
 	//DrawEntity(&limit);
 	DrawLimit(limitTextures, &limit);
-	if (pause)
-		DrawPauseMenu(&pauseMenu);
+	if (gameState.paused)
+		DrawPauseMenu(pauseMenu);
 	DrawCircle((int)paddleTarget.x, (int)paddleTarget.y, 10.0f, PURPLE);
 	EndMode2D();
 	EndDrawing();

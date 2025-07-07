@@ -2,6 +2,7 @@
 // Created by frick on 2025-06-25.
 //
 
+#include "box2d/math_functions.h"
 #include "raylib.h"
 #include "box2d/box2d.h"
 #include "entities.h"
@@ -51,7 +52,21 @@ Ball CreateBall(b2Vec2 pos, float radius, Texture* texture, Color color, b2World
     return ball;
 }
 
-void CheckBallPaddleCollision(Ball* ball, Paddle* paddle) {
+float BallRayResultFcn(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fraction, void* context ) {
+    BallRayCastContext* myContext = context;
+    myContext->shapeId = shapeId;
+    myContext->point = point;
+    myContext->normal = normal;
+    myContext->fraction = fraction;
+    if (shapeId.index1 == myContext->targetShapeId.index1) {
+        return fraction;
+    }
+    return -1;
+}
+
+void CheckBallPaddleCollision(Ball* ball, Paddle* paddle, BallRayCastContext* context) {
+    if(context->shapeId.index1 != paddle->shapeId.index1)
+        return;
 
     b2Sweep sweepA, sweepB;
     sweepA.c1 = b2Body_GetPosition(ball->bodyId);
@@ -80,19 +95,25 @@ void CheckBallPaddleCollision(Ball* ball, Paddle* paddle) {
     input.maxFraction = 1.0f;
 
     b2TOIOutput output = b2TimeOfImpact(&input);
-    if ((output.state == b2_toiStateHit || output.state == b2_toiStateOverlapped)
-        && output.fraction < 1.0f && b2Body_GetLinearVelocity(ball->bodyId).y > 0.0f) {
+    if ((
+        output.state == b2_toiStateHit || 
+        output.state == b2_toiStateOverlapped)&&
+        output.fraction < 1.0f && output.fraction > 0 && b2Body_GetLinearVelocity(ball->bodyId).y > 0.0f
+        ) {
         b2Vec2 ballPos = b2Body_GetPosition(ball->bodyId);
         b2Rot ballRot = b2Body_GetRotation(ball->bodyId);
         b2Vec2 paddlePos = b2Body_GetPosition(paddle->bodyId);
-        if (ballPos.y + ball->radius < paddlePos.y - paddle->extent.y
-            && ballPos.x + ball->radius > paddlePos.x - paddle->extent.x
-            && ballPos.x - ball->radius < paddlePos.x + paddle->extent.x) {
-            b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x, paddlePos.y - paddle->extent.y - ball->circle.radius}, ballRot);
-        }
+        b2Vec2 adjustment = b2MulSV(ball->radius, context->normal);
+        b2Vec2 adjPos = b2Add(context->point, adjustment);
+        //if (ballPos.y + ball->radius < paddlePos.y - paddle->extent.y
+        //    && ballPos.x + ball->radius > paddlePos.x - paddle->extent.x
+        //    && ballPos.x - ball->radius < paddlePos.x + paddle->extent.x) {
+        //    b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x, paddlePos.y - paddle->extent.y - ball->circle.radius}, ballRot);
+        //}
         //else {
          //   b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x - paddle->extent.x - ball->circle.radius, paddlePos.y }, ballRot);
         //}
+        b2Body_SetTransform(ball->bodyId, adjPos, ballRot);
     }
 }
 
@@ -141,9 +162,10 @@ void DrawBall(Ball* ball) {
 
 void ResetBall(Ball* ball) {
     b2Body_SetLinearVelocity(ball->bodyId, b2Vec2_zero);
+    b2Body_SetAngularVelocity(ball->bodyId, 0.0f);
     b2Body_SetTransform(ball->bodyId,
         ball->spawn,
-        b2Body_GetRotation(ball->bodyId));
+        b2MakeRot(0));
 }
 
 /*  #########################
@@ -197,7 +219,7 @@ Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* textu
     shapeDef.enableContactEvents = true;
     shapeDef.enableHitEvents = true;
     shapeDef.filter.categoryBits = PADDLE;
-    shapeDef.filter.maskBits = BALLTHRU | BALL | BOX | GROUND;
+    shapeDef.filter.maskBits = BALLTHRU | BALL | BOX | GROUND | RAY;
     b2ShapeId shapeId = b2CreatePolygonShape(bodyId, &shapeDef, &polygon);
     paddle.shapeId = shapeId;
 
