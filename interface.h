@@ -17,6 +17,7 @@ enum GameStates {
 typedef struct GameState {
     int paused;
     uint64_t state;
+    int score;
 } GameState;
 
 typedef struct Container {
@@ -35,7 +36,7 @@ typedef struct Button {
     Vector2 textPosition;
     void (*callback)(int*);
     int* callbackArg;
-}Button;
+} Button;
 
 typedef struct PauseMenu {
     GameState* gameState;
@@ -46,9 +47,12 @@ typedef struct PauseMenu {
     Texture textures[2];
     int buttonCount;
     Button buttons[];
-}PauseMenu;
+} PauseMenu;
 
 PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds, Font* font, Texture textures[]);
 void DrawPauseMenu(PauseMenu* pauseMenu);
 void PauseMenuHandleClick(PauseMenu* pauseMenu, Vector2 mousePos);
+
+void DrawHUD(GameState* gameState, Font* font, Rectangle screenBounds);
+
 #endif //INTERFACE_H

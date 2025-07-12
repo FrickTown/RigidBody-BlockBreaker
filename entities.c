@@ -95,9 +95,9 @@ void CheckBallPaddleCollision(Ball* ball, Paddle* paddle, BallRayCastContext* co
     input.maxFraction = 1.0f;
 
     b2TOIOutput output = b2TimeOfImpact(&input);
-    if ((
-        output.state == b2_toiStateHit || 
-        output.state == b2_toiStateOverlapped)&&
+    if (
+        (output.state == b2_toiStateHit || 
+         output.state == b2_toiStateOverlapped)&&
         output.fraction < 1.0f && output.fraction > 0 && b2Body_GetLinearVelocity(ball->bodyId).y > 0.0f
         ) {
         b2Vec2 ballPos = b2Body_GetPosition(ball->bodyId);
@@ -105,14 +105,6 @@ void CheckBallPaddleCollision(Ball* ball, Paddle* paddle, BallRayCastContext* co
         b2Vec2 paddlePos = b2Body_GetPosition(paddle->bodyId);
         b2Vec2 adjustment = b2MulSV(ball->radius, context->normal);
         b2Vec2 adjPos = b2Add(context->point, adjustment);
-        //if (ballPos.y + ball->radius < paddlePos.y - paddle->extent.y
-        //    && ballPos.x + ball->radius > paddlePos.x - paddle->extent.x
-        //    && ballPos.x - ball->radius < paddlePos.x + paddle->extent.x) {
-        //    b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x, paddlePos.y - paddle->extent.y - ball->circle.radius}, ballRot);
-        //}
-        //else {
-         //   b2Body_SetTransform(ball->bodyId, (b2Vec2){ballPos.x - paddle->extent.x - ball->circle.radius, paddlePos.y }, ballRot);
-        //}
         b2Body_SetTransform(ball->bodyId, adjPos, ballRot);
     }
 }
@@ -206,7 +198,8 @@ Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* textu
     b2BodyDef bodyDef = b2DefaultBodyDef();
     bodyDef.type = b2_dynamicBody;
     bodyDef.position = spawn;
-    //bodyDef.isBullet = true;
+    
+    bodyDef.isBullet = true;
 
     b2BodyId bodyId = b2CreateBody(worldId, &bodyDef);
     paddle.bodyId = bodyId;

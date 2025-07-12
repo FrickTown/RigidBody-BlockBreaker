@@ -3,6 +3,7 @@
 //
 
 #include "interface.h"
+#include "raylib.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -150,3 +151,9 @@ void PauseMenuHandleClick(PauseMenu* menu, Vector2 mousePos) {
     }
 }
 
+void DrawHUD(GameState *gameState, Font* font, Rectangle screenBounds) {
+    Vector2 scorePadding = {35, 20};
+    char scoreText[64];
+    snprintf(scoreText, sizeof(scoreText), "Score: %i", gameState->score);
+    DrawTextEx(*font, scoreText, (Vector2){screenBounds.x + scorePadding.x, screenBounds.y + scorePadding.y}, 100.0f, 1.0f, BLUE);
+}

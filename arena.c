@@ -81,5 +81,5 @@ void DrawLimit(Texture textures[], Entity* limit) {
 }
 
 void DrawDeathZone(Texture textures[], Entity* deathZone) {
-
+    
 }

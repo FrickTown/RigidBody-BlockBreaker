@@ -1,3 +1,4 @@
+#include "box2d/collision.h"
 #include "raylib.h"
 #include "box2d/box2d.h"
 
@@ -131,9 +132,12 @@ b2WorldId worldId;
 Level level;
 Camera2D camera = { 0 };
 Vector2 screenOrigin, screenMax;
+Rectangle screenBounds;
 
 GameState gameState = {
 	.paused = false,
+	.state = GAME_ACTIVE,
+	.score = 0
 };
 
 PauseMenu* pauseMenu;
@@ -191,6 +195,7 @@ void InitWorld(void) {
 	// Top-left and bottom-right vectors
 	screenOrigin = GetScreenToWorld2D((Vector2){0, 0}, camera);
 	screenMax = GetScreenToWorld2D((Vector2){width, height}, camera);
+	screenBounds = (Rectangle){screenOrigin.x, screenOrigin.y, screenMax.x - screenOrigin.x, screenMax.y - screenOrigin.y};
 
 	b2Vec2 staticsExtent = { 0.5f * groundTexture.width, 0.5f * groundTexture.height };
 
@@ -402,21 +407,36 @@ void Update(void) {
 
 	// Raycast Collision
 
+	// Reset the ballcast result 
 	memset(&context, 0, sizeof(context));
+	
+	context.targetShapeId = paddle.shapeId;
+	origin = b2Body_GetPosition(ballEntity.bodyId);
+	translation = b2MulSV(100000, b2Normalize(b2Body_GetLinearVelocity(ballEntity.bodyId)));
+	//translation.x = translation.x * (1.0f / 60.0f);
+	//translation.y = translation.y * (1.0f / 60.0f);
+	b2QueryFilter filter = {RAY, PADDLE};
+	b2ShapeProxy ballProx = b2MakeProxy(&ballPos, 1, ballEntity.radius);
+	b2World_CastShape(worldId, &ballProx, translation, filter, BallRayResultFcn, &context);
+
 	if (DEBUG) {
-		context.targetShapeId = paddle.shapeId;
-		origin = b2Body_GetPosition(ballEntity.bodyId);
-		translation = b2MulSV(100000, b2Normalize(b2Body_GetLinearVelocity(ballEntity.bodyId)));
-		//translation.x = translation.x * (1.0f / 60.0f);
-		//translation.y = translation.y * (1.0f / 60.0f);
-		b2QueryFilter filter = {RAY, PADDLE};
-		b2World_CastRay(worldId, origin, translation, filter, &BallRayResultFcn, &context);
+		//b2World_CastRay(worldId, origin, translation, filter, &BallRayResultFcn, &context);
 		if (context.shapeId.index1 == paddle.shapeId.index1)
-			if (DEBUG) printf("Context: ShapeID: %d, Point: (%.2f, %.2f), Normal: (%.2f, %.2f), Frac: (%.8f) \n", context.shapeId.index1, context.point.x, context.point.y, context.normal.x, context.normal.y, context.fraction);
+			printf("Context: ShapeID: %d, Point: (%.2f, %.2f), Normal: (%.2f, %.2f), Frac: (%.8f) \n", context.shapeId.index1, context.point.x, context.point.y, context.normal.x, context.normal.y, context.fraction);
 	}
 
+	// Set the paddle velocity required to approach the cursor the next timestep
 	UpdatePaddle(&paddle, paddleTarget);
-	CheckBallPaddleCollision(&ballEntity, &paddle, &context);
+
+	// Get the magnitude of the paddle velocity
+	b2Vec2 paddleVelocity = b2Body_GetLinearVelocity(paddle.bodyId);
+	float paddleSpeed = sqrt(paddleVelocity.x * paddleVelocity.x + paddleVelocity.y * paddleVelocity.y);
+
+	// If paddle is moving fast enough, perform extra collision checks to prevent tunneling
+	if(paddleSpeed > 2000.0f){
+		printf("Paddlespeed: %.4f \n", paddleSpeed);
+		CheckBallPaddleCollision(&ballEntity, &paddle, &context);
+	}
 
 	if (gameState.paused == false)
 	{
@@ -458,15 +478,18 @@ void Update(void) {
 						ballVel.x *= -1;
 						ballVel.y *= -1;
 						b2Body_SetLinearVelocity(targetBody, ballVel);
+						gameState.score += 20;
 					}
-					else if (level.targets[j].state == 1)
+					else if (level.targets[j].state == 1){
 						//b2DestroyBody(level.targets[j].bodyId);
-							b2Body_Disable(targetBody);
+						b2Body_Disable(targetBody);
+						gameState.score += 30;
+					}
 				}
 
 			}
 			int r = rand() % 3;
-			SetSoundVolume(targetSounds[r], 1.0f);
+			SetSoundVolume(targetSounds[r], 0.75f);
 			PlaySound(targetSounds[r]);
 		}
 		// IF BALL (2) collides with PADDLE (22)
@@ -476,6 +499,8 @@ void Update(void) {
 				shape = hitEvent->shapeIdA;
 			else
 				shape = hitEvent->shapeIdB;
+
+			// Audio level determination
 			b2BodyId ballBody = b2Shape_GetBody(shape);
 			b2Vec2 vel = b2Body_GetLinearVelocity(ballBody);
 			float volMod = sqrt((pow(vel.x, 2) + pow(vel.y, 2))) * 1;
@@ -574,6 +599,7 @@ void DrawFrame(void){
 	if (gameState.paused)
 		DrawPauseMenu(pauseMenu);
 	DrawCircle((int)paddleTarget.x, (int)paddleTarget.y, 10.0f, PURPLE);
+	DrawHUD(&gameState, &menuFont, screenBounds);
 	EndMode2D();
 	EndDrawing();
 }
