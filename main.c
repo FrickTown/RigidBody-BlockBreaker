@@ -8,11 +8,17 @@
 #include <string.h>
 #include <time.h>
 
+#include "assets.h"
 #include "rlgl.h"
 #include "entities.h"
 #include "arena.h"
 #include "interface.h"
 #include "levels.h"
+
+Texture TextureLibrary[TextureEnumSize] = { 0 };
+Sound SoundLibrary[SoundEnumSize] = { nullptr };
+InterfaceAssets interfaceAssets = { 0 };
+
 #if defined(PLATFORM_WEB)
 	#include <emscripten/emscripten.h>
 #endif
@@ -21,14 +27,10 @@ float InvLerp(float a, float b, float t) {
 	return (t - a) / (b - a);
 }
 
-
-
 void Update(void);
 void DrawFrame(void);
 void InitWorld(void);
-void LoadAssets(void);
 void UnloadAssets(void);
-
 
 void CoreLoop(void){
 	Update();
@@ -40,10 +42,11 @@ void CoreLoop(void){
 int width = 1920, height = 1080;
 int main(void)
 {
-	srand(time(NULL));
+	srand(time(nullptr));
 	InitWindow(width, height, "box2d-raylib");
 	InitAudioDevice();
-	LoadAssets();
+	LoadAssetLibraries();
+	interfaceAssets = LoadInterfaceAssets();
 	InitWorld();
 	#if defined(PLATFORM_WEB)
 		emscripten_set_main_loop(CoreLoop, 0, 1);
@@ -58,71 +61,13 @@ int main(void)
 		}
 	#endif
 
-	UnloadAssets();
+	UnloadAssetLibraries();
+	UnloadInterfaceAssets(interfaceAssets);
 
 	CloseAudioDevice();
 	CloseWindow();
 
 	return 0;
-}
-Texture groundTexture, boxTexture, targetTexture, ballTexture;
-char* paddleTexturePaths[][3] = {
-	"paddleL.png", "paddleMid.png", "paddleR.png"
-};
-
-Texture wallTextures[4];
-Texture ceilTextures[3];
-Texture backgroundTextures[3];
-Texture limitTextures[2];
-Texture targetTextures[2];
-
-Sound paddleSounds[3];
-Sound targetSounds[4];
-
-Texture interfaceTextures[2];
-
-Font menuFont;
-
-void LoadAssets(void) {
-	groundTexture = LoadTexture("assets/block_idle.png");
-	boxTexture = LoadTexture("assets/box.png");
-	targetTexture = LoadTexture("assets/ground.png");
-	ballTexture = LoadTexture("assets/ball.png");
-	targetTexture.height = targetTexture.height * 0.5f;
-	targetTexture.width = targetTexture.width * 0.5f;
-
-	paddleSounds[0] = LoadSound("assets/paddle1.ogg");
-	paddleSounds[1] = LoadSound("assets/paddle2.ogg");
-	paddleSounds[2] = LoadSound("assets/paddle3.ogg");
-
-	targetSounds[0] = LoadSound("assets/target1.ogg");
-	targetSounds[1] = LoadSound("assets/target2.ogg");
-	targetSounds[2] = LoadSound("assets/target3.ogg");
-	targetSounds[3] = LoadSound("assets/target4.ogg");
-
-	wallTextures[0] = LoadTexture("assets/wallL.png");
-	wallTextures[1] = LoadTexture("assets/wallLTop.png");
-	wallTextures[2] = LoadTexture("assets/wallR.png");
-	wallTextures[3] = LoadTexture("assets/wallRTop.png");
-
-	ceilTextures[0] = LoadTexture("assets/ceilL.png");
-	ceilTextures[1] = LoadTexture("assets/ceilMid.png");
-	ceilTextures[2] = LoadTexture("assets/ceilR.png");
-
-	backgroundTextures[0] = LoadTexture("assets/bg_ground.png");
-	backgroundTextures[1] = LoadTexture("assets/bg_view.png");
-	backgroundTextures[2] = LoadTexture("assets/bg_sky.png");
-
-	targetTextures[0] = LoadTexture("assets/target_rest.png");
-	targetTextures[1] = LoadTexture("assets/target_awake.png");
-
-	limitTextures[0] = LoadTexture("assets/limit.png");
-	limitTextures[1] = LoadTexture("assets/limit_end.png");
-
-	interfaceTextures[0] = LoadTexture("assets/UI/button_color.png");
-	interfaceTextures[1] = LoadTexture("assets/UI/button_gray.png");
-
-	menuFont = LoadFont("assets/UI/Kenney Future Narrow.ttf");
 }
 
 constexpr bool DEBUG = true;
@@ -162,17 +107,6 @@ b2Vec2 origin = { 0 };
 b2Vec2 translation = { 0 };
 b2Vec2 VectorsToDraw[10] = { 0 };
 
-void UnloadAssets(void) {
-	UnloadTexture(groundTexture);
-	UnloadTexture(boxTexture);
-	for (int i = 0; i < 3; i++) {
-		UnloadSound(paddleSounds[i]);
-		UnloadSound(targetSounds[i]);
-		UnloadTexture(paddle.textures[i]);
-	}
-	UnloadSound(targetSounds[3]);
-}
-
 void InitWorld(void) {
 	camera.target = (Vector2){ width/2.0f, height/2.0f };
 	camera.offset = (Vector2){ width/2.0f, height/2.0f };
@@ -197,61 +131,66 @@ void InitWorld(void) {
 	screenMax = GetScreenToWorld2D((Vector2){width, height}, camera);
 	screenBounds = (Rectangle){screenOrigin.x, screenOrigin.y, screenMax.x - screenOrigin.x, screenMax.y - screenOrigin.y};
 
-	b2Vec2 staticsExtent = { 0.5f * groundTexture.width, 0.5f * groundTexture.height };
+	b2Vec2 staticsExtent = { 0.5f * TextureLibrary[t_block_idle].width, 0.5f * TextureLibrary[t_block_idle].height };
 
 	// Defining the solid walls
-	b2Vec2 wallExtent = {wallTextures[0].width * 0.5f, (screenMax.y - screenOrigin.y) / 2};
+	b2Vec2 wallExtent = {TextureLibrary[t_wall_left].width * 0.5f, (screenMax.y - screenOrigin.y) / 2};
 	b2Vec2 lPos = {screenOrigin.x + staticsExtent.x, screenOrigin.y + (screenMax.y - screenOrigin.y) / 2};
 	leftWall = CreateSolid(lPos, wallExtent, nullptr, PURPLE, worldId);
 	b2Vec2 rPos = {screenMax.x - staticsExtent.x, screenOrigin.y + (screenMax.y - screenOrigin.y) / 2};
 	rightWall = CreateSolid(rPos, wallExtent, nullptr, PURPLE, worldId);
 
 	// Defining the solid ceiling
-	b2Vec2 ceilPos = {screenOrigin.x + ((screenMax.x - screenOrigin.x) / 2), screenOrigin.y + groundTexture.height * 0.5f};
-	b2Vec2 ceilExtent = {((screenMax.x - screenOrigin.x) / 2), groundTexture.height * 0.5f };
+	b2Vec2 ceilPos = {screenOrigin.x + ((screenMax.x - screenOrigin.x) / 2), screenOrigin.y + TextureLibrary[t_ceiling_left].height * 0.5f};
+	b2Vec2 ceilExtent = {((screenMax.x - screenOrigin.x) / 2), TextureLibrary[t_ceiling_left].height * 0.5f };
 	ceiling = CreateSolid(ceilPos, ceilExtent, nullptr, WHITE, worldId);
 
-	b2Vec2 boxExtent = { 0.5f * boxTexture.width, 0.5f * boxTexture.height };
+	b2Vec2 boxExtent = { 0.5f * TextureLibrary[t_box].width, 0.5f * TextureLibrary[t_box].height };
 	for (int i = 0; i < BOX_COUNT; ++i)
 	{
 		float y = height - boxExtent.y - 100.0f - (2.5f * i + 2.0f) * boxExtent.y - 20.0f;
 		float x = 0.5f * width + (3.0f * i - 3.0f) * boxExtent.x;
-		Entity box = CreatePhysicsBox((b2Vec2){x, y}, boxExtent, &boxTexture, worldId);
+		Entity box = CreatePhysicsBox((b2Vec2){x, y}, boxExtent, &TextureLibrary[t_box], worldId);
 		boxEntities[i] = box;
 	}
 
-	ballEntity = CreateBall(
-		(b2Vec2){width / 2.0f, height / 5.0f},
-		0.3f * lengthUnitsPerMeter,
-		&ballTexture,
-		PURPLE,
-		worldId
-		);
+	
 
 	// Create the paddle
 	paddle = CreatePaddle(
-		(b2Vec2){width / 2.0f, height * 0.95f}, 1.2f * lengthUnitsPerMeter, 0.4f * lengthUnitsPerMeter,
-		paddleTexturePaths, 3, 0.8f, BLUE, worldId
+		(b2Vec2){
+			width / 2.0f, 
+			height * 0.95f
+		}, 
+		1.2f * lengthUnitsPerMeter, 
+		0.4f * lengthUnitsPerMeter,
+		BLUE, 
+		worldId
 		);
 
 	// Create the paddle's movement limit
-	b2Vec2 limPos = {width / 2.0f, height * 0.85f + limitTextures[0].height / 2.0f};
+	// TODO: Make special function for this
+	b2Vec2 limPos = {width / 2.0f, height * 0.85f + TextureLibrary[t_limit].height / 2.0f};
 	b2Vec2 limExtent = {width, 16};
 	limit = CreateSolid(
 		limPos,
 		limExtent,
 		nullptr, WHITE, worldId
 		);
-
+	
 	b2Filter filt = { 0 };
 	filt.categoryBits = BALLTHRU;
 	filt.maskBits = PADDLE | TARGET;
 	b2Shape_SetFilter(limit.shapeId, filt);
 
+	// Establish the inner bounds of the arena
+	// TODO: Clean this up (move to arena.c?)
 	float innerWidth = (rPos.x - rightWall.extent.x) - (lPos.x + leftWall.extent.x);
 	float innerHeight =  (limPos.y - limExtent.y) - (ceilPos.y + ceilExtent.y);
 	Vector2 innerOrigin = {(lPos.x + leftWall.extent.x), (ceilPos.y + ceilExtent.y)};
 
+	// Establish the death zone
+	// TODO: Allow levels to define their specific death zone
 	float dzHeight = 100;
 	b2Vec2 dzExtent = {innerWidth / 2, dzHeight};
 	b2Vec2 dzPos = {innerOrigin.x + dzExtent.x, screenMax.y - dzExtent.y};
@@ -260,13 +199,36 @@ void InitWorld(void) {
 	mousePosition = GetMousePosition();
 	mouseDelta = GetMouseDelta();
 
-	holdingEntity = false;
+	Vector2 center = {
+		screenMax.x - (screenMax.x - screenOrigin.x) / 2, 
+		screenMax.y - (screenMax.y - screenOrigin.y) / 2
+	};
+	Rectangle pauseMenuBounds = {
+		center.x - innerWidth  / 8, 
+		center.y - innerHeight  / 2, 
+		innerWidth / 4, 
+		innerHeight
+	};
+	pauseMenu = CreatePauseMenu(
+		&gameState, 
+		pauseMenuBounds, 
+		&interfaceAssets);
+	//printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
+	level = LoadLevel(levelRooms, innerOrigin, worldId);
 
-	Vector2 center = {screenMax.x - (screenMax.x - screenOrigin.x) / 2, screenMax.y - (screenMax.y - screenOrigin.y) / 2};
-	Rectangle pauseMenuBounds = {center.x - innerWidth  / 8, center.y - innerHeight  / 2, innerWidth / 4, innerHeight};
-	pauseMenu = CreatePauseMenu(&gameState, pauseMenuBounds, &menuFont, interfaceTextures);
-	printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
-	level = LoadLevel(levelPillars, innerOrigin, groundTexture, targetTextures, worldId);
+	//TODO: Investigate further why ballspawn is not where it should be
+	Vector2 ballTest = GetWorldToScreen2D(
+		(Vector2){
+			level.ballSpawn.x, 
+			level.ballSpawn.y
+		}, camera);
+	ballEntity = CreateBall(
+		(b2Vec2){ballTest.x, ballTest.y},
+		0.3f * lengthUnitsPerMeter,
+		&TextureLibrary[t_ball],
+		PURPLE,
+		worldId
+		);
 }
 
 void Update(void) {
@@ -488,9 +450,9 @@ void Update(void) {
 				}
 
 			}
-			int r = rand() % 3;
-			SetSoundVolume(targetSounds[r], 0.75f);
-			PlaySound(targetSounds[r]);
+			int r = rand() % 4;
+			SetSoundVolume(SoundLibrary[s_target_1 + r], 0.75f);
+			PlaySound(SoundLibrary[s_target_1 + r]);
 		}
 		// IF BALL (2) collides with PADDLE (22)
 		if (abs((int)(shapeACategory - shapeBCategory)) == 20) {
@@ -508,8 +470,8 @@ void Update(void) {
 			vol = 1.0f / pow(vol, -0.5);
 			//printf("Volume: %.2f\n", volMod);
 			int r = rand() % 3;
-			SetSoundVolume(paddleSounds[r], vol);
-			PlaySound(paddleSounds[r]);
+			SetSoundVolume(SoundLibrary[s_paddle_1 + r], vol);
+			PlaySound(SoundLibrary[s_paddle_1 + r]);
 		}
 	}
 
@@ -566,7 +528,7 @@ void DrawFrame(void){
 
 	// Draw outer bounds
 
-	DrawBackground(backgroundTextures, &camera);
+	DrawBackground(&camera);
 	//DrawEntity(&rightWall);
 
 	// Ray-casting for landing
@@ -580,8 +542,8 @@ void DrawFrame(void){
 		DrawLine(context.point.x, context.point.y, adjPos.x, adjPos.y, PINK);
 	}
 
-	DrawWalls(wallTextures, &camera);
-	DrawCeiling(ceilTextures,  &camera);
+	DrawWalls(&camera);
+	DrawCeiling(&camera);
 
 	// Draw physics-based boxes
 	for (int i = 0; i < BOX_COUNT; ++i)
@@ -595,11 +557,11 @@ void DrawFrame(void){
 	DrawEntity(&deathZone);
 	DrawPaddle(&paddle);
 	//DrawEntity(&limit);
-	DrawLimit(limitTextures, &limit);
+	DrawLimit(&limit);
 	if (gameState.paused)
 		DrawPauseMenu(pauseMenu);
 	DrawCircle((int)paddleTarget.x, (int)paddleTarget.y, 10.0f, PURPLE);
-	DrawHUD(&gameState, &menuFont, screenBounds);
+	DrawHUD(&gameState, &interfaceAssets, screenBounds);
 	EndMode2D();
 	EndDrawing();
 }

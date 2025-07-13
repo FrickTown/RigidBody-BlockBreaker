@@ -49,6 +49,8 @@ add_executable(Box2DTest main.c
         levels.c
         interface.c
         interface.h
+        assets.c
+        assets.h
 )
 target_link_libraries(Box2DTest PRIVATE box2d raylib m)
 

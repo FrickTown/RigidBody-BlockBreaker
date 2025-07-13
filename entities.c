@@ -6,10 +6,11 @@
 #include "raylib.h"
 #include "box2d/box2d.h"
 #include "entities.h"
-
-#include <stdio.h>
-#include <string.h>
+#include "assets.h"
 #include <sys/types.h>
+
+extern Texture TextureLibrary[TextureEnumSize];
+extern Sound SoundLibrary[SoundEnumSize];
 
 /*  #########################
  *         BALL ENTITY
@@ -166,7 +167,7 @@ void ResetBall(Ball* ball) {
  *  #########################
 */
 
-Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* texturePaths[][3], int numTex, float scale, Color color, b2WorldId worldId) {
+Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, Color color, b2WorldId worldId) {
     Paddle paddle = { 0 };
     paddle.touchingLimit = false;
     paddle.lastTouchTime = 0;
@@ -175,25 +176,9 @@ Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* textu
 
     b2Vec2 extent;
     b2Polygon polygon;
-    if (texturePaths != nullptr) {
-        Texture textures[3] = { 0 };
-        for (int i = 0; i < numTex; i++) {
+    extent = (b2Vec2){ halfWidth, halfHeight };
+    polygon = b2MakeBox(halfWidth, halfHeight);
 
-            char fullPath[32];
-            char* path = *(*texturePaths + i);
-            snprintf(fullPath, sizeof(fullPath), "%s/%s", "assets", path);
-            Image img = LoadImage(fullPath);
-            ImageResize(&img, img.width * scale, img.height * scale);
-            textures[i] = LoadTextureFromImage(img);
-            extent = (b2Vec2){ 0.5f * textures[i].width * 3, 0.5f * textures[i].height };
-            polygon = b2MakeBox(extent.x, extent.y);
-        }
-        memcpy(paddle.textures, textures, numTex * sizeof(Texture));
-    }
-    else {
-        extent = (b2Vec2){ halfWidth, halfHeight };
-        polygon = b2MakeBox(halfWidth, halfHeight);
-    }
     paddle.extent = extent;
     b2BodyDef bodyDef = b2DefaultBodyDef();
     bodyDef.type = b2_dynamicBody;
@@ -239,7 +224,6 @@ void DrawPaddle(Paddle* paddle) {
     if (!b2Body_IsEnabled(paddle->bodyId))
         return;
 
-    b2Vec2 p = b2Body_GetWorldPoint(paddle->bodyId, (b2Vec2) { -paddle->extent.x, -paddle->extent.y });
     b2Vec2 pos = b2Body_GetPosition(paddle->bodyId);
     b2Rot rotation = b2Body_GetRotation(paddle->bodyId);
     float radians = b2Rot_GetAngle(rotation);
@@ -251,18 +235,23 @@ void DrawPaddle(Paddle* paddle) {
     b2Vec2 toRight = {paddle->extent.x / 3.0f, -paddle->extent.y};
     b2Vec2 rightAdj = b2RotateVector(rotation, toRight);
 
-    if (paddle->textures == nullptr) {
-        Rectangle rect = {p.x, p.y, paddle->extent.x * 2, paddle->extent.y * 2};
-        DrawRectanglePro(rect, (Vector2){0, 0}, RAD2DEG * radians, paddle->color);
-    }
-    else {
-        Texture tex1 = paddle->textures[0];
-        DrawTextureEx(tex1, (Vector2){pos.x + leftAdj.x, pos.y + leftAdj.y}, RAD2DEG * radians, 1.0f, WHITE);
-        Texture tex2 = paddle->textures[1];
-        DrawTextureEx(tex2, (Vector2){pos.x + midAdj.x, pos.y + midAdj.y}, RAD2DEG * radians, 1.0f, WHITE);
-        Texture tex3 = paddle->textures[2];
-        DrawTextureEx(tex3, (Vector2){pos.x + rightAdj.x, pos.y + rightAdj.y}, RAD2DEG * radians, 1.0f, WHITE);
-    }
+    DrawTextureEx(
+        TextureLibrary[t_paddle_left], 
+        (Vector2){pos.x + leftAdj.x, pos.y + leftAdj.y}, RAD2DEG * radians, 
+        1.0f, 
+        WHITE);
+
+    DrawTextureEx(
+        TextureLibrary[t_paddle_mid],
+        (Vector2){pos.x + midAdj.x, pos.y + midAdj.y}, RAD2DEG * radians, 
+        1.0f, 
+        WHITE);
+
+    DrawTextureEx(
+        TextureLibrary[t_paddle_right], 
+        (Vector2){pos.x + rightAdj.x, pos.y + rightAdj.y}, RAD2DEG * radians, 
+        1.0f, 
+        WHITE);
 }
 
 /*  #########################
@@ -271,8 +260,8 @@ void DrawPaddle(Paddle* paddle) {
  *  #########################
 */
 
-Target CreateTarget(b2Vec2 spawn, Texture textures[], float scale, Color color, b2WorldId worldId) {
-    b2Vec2 extent = {textures[0].width * 0.5f * scale, textures[0].height * 0.5f * scale};
+Target CreateTarget(b2Vec2 spawn, float scale, Color color, b2WorldId worldId) {
+    b2Vec2 extent = {TextureLibrary[t_target_rest].width * 0.5f * scale, TextureLibrary[t_target_rest].height * 0.5f * scale};
     b2Polygon polygon = b2MakeBox(extent.x, extent.y);
 
     b2BodyDef targetBodyDef = b2DefaultBodyDef();
@@ -301,9 +290,7 @@ Target CreateTarget(b2Vec2 spawn, Texture textures[], float scale, Color color, 
         proxy,
         scale,
         0,
-        {0}
     };
-    memcpy(target.textures, textures, 2 * sizeof(Texture));
 
     return target;
 }
@@ -313,16 +300,28 @@ void UpdateTarget(Target* target) {
 }
 
 void DrawTarget(Target* target) {
+    // Skip drawing if disabled
     if (!b2Body_IsEnabled(target->bodyId))
         return;
 
-    b2Vec2 p = b2Body_GetWorldPoint(target->bodyId, (b2Vec2) { -target->extent.x, -target->extent.y });
+    // Get position and rotation
+    b2Vec2 p = b2Body_GetWorldPoint(
+        target->bodyId, 
+        (b2Vec2) { -target->extent.x, -target->extent.y });
     b2Rot rotation = b2Body_GetRotation(target->bodyId);
     float radians = b2Rot_GetAngle(rotation);
-    b2Vec2 adj = b2RotateVector(rotation, (b2Vec2){-target->extent.x, -target->extent.y});
+    //b2Vec2 adj = b2RotateVector(
+    //    rotation, 
+    //    (b2Vec2){-target->extent.x, -target->extent.y});
     //Vector2 ps = {p.x + adj.x, p.y + adj.y};
+    // Convert to RayLib Vector2
     Vector2 ps = {p.x, p.y};
-    DrawTextureEx(target->textures[target->state], ps, RAD2DEG * radians, target->scale, WHITE);
+    DrawTextureEx(
+        TextureLibrary[t_target_rest + target->state], 
+        ps, 
+        RAD2DEG * radians, 
+        target->scale, 
+        WHITE);
 }
 
 /*  #########################

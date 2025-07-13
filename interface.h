@@ -6,6 +6,7 @@
 #define INTERFACE_H
 #include <raylib.h>
 #include <stdint.h>
+#include "assets.h"
 
 enum GameStates {
     MAIN_MENU,
@@ -41,18 +42,19 @@ typedef struct Button {
 typedef struct PauseMenu {
     GameState* gameState;
     Rectangle bounds;
-    Font* font;
     Container background;
     Container foreground;
-    Texture textures[2];
+    InterfaceAssets* assets;
     int buttonCount;
     Button buttons[];
 } PauseMenu;
 
-PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds, Font* font, Texture textures[]);
+PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds, InterfaceAssets* InterfaceAssets);
 void DrawPauseMenu(PauseMenu* pauseMenu);
 void PauseMenuHandleClick(PauseMenu* pauseMenu, Vector2 mousePos);
 
-void DrawHUD(GameState* gameState, Font* font, Rectangle screenBounds);
+void DrawHUD(GameState* gameState, InterfaceAssets* assets, Rectangle screenBounds);
+
+
 
 #endif //INTERFACE_H

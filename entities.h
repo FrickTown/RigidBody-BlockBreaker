@@ -5,6 +5,8 @@
 #ifndef ENTITIES_H
 #define ENTITIES_H
 
+#include "box2d/types.h"
+#include "raylib.h"
 constexpr int BALL_TRACERS = 35;
 
 enum CATS {
@@ -65,7 +67,7 @@ typedef struct Paddle {
     b2BodyDef bodyDef;
     b2ShapeId shapeId;
     b2Vec2 extent;
-    Texture textures[3];
+    Texture* textures;
     Color color;
     bool touchingLimit;
     float lastTouchTime;
@@ -74,7 +76,7 @@ typedef struct Paddle {
     int tilt;
 } Paddle;
 
-Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, char* texturePaths[][3], int numTex, float scale, Color color, b2WorldId worldId);
+Paddle CreatePaddle(b2Vec2 spawn, float halfWidth, float halfHeight, Color color, b2WorldId worldId);
 void CheckBallPaddleCollision(Ball* ball, Paddle* paddle, BallRayCastContext* context);
 void UpdatePaddle(Paddle* paddle, b2Vec2 pos);
 void DrawPaddle(Paddle* paddle);
@@ -87,10 +89,9 @@ typedef struct Target {
     b2ShapeProxy proxy;
     float scale;
     int state;
-    Texture textures[2];
 } Target;
 
-Target CreateTarget(b2Vec2 spawn, Texture textures[], float scale, Color color, b2WorldId worldId);
+Target CreateTarget(b2Vec2 spawn, float scale, Color color, b2WorldId worldId);
 void UpdateTarget(Target* target);
 void DrawTarget(Target* target);
 
