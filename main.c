@@ -17,7 +17,7 @@
 
 Texture TextureLibrary[TextureEnumSize] = { 0 };
 Sound SoundLibrary[SoundEnumSize] = { nullptr };
-InterfaceAssets interfaceAssets = { 0 };
+Font menuFont = { 0 };
 
 #if defined(PLATFORM_WEB)
 	#include <emscripten/emscripten.h>
@@ -46,7 +46,7 @@ int main(void)
 	InitWindow(width, height, "box2d-raylib");
 	InitAudioDevice();
 	LoadAssetLibraries();
-	interfaceAssets = LoadInterfaceAssets();
+	menuFont = LoadFont("assets/UI/Kenney Future Narrow.ttf");
 	InitWorld();
 	#if defined(PLATFORM_WEB)
 		emscripten_set_main_loop(CoreLoop, 0, 1);
@@ -62,7 +62,6 @@ int main(void)
 	#endif
 
 	UnloadAssetLibraries();
-	UnloadInterfaceAssets(interfaceAssets);
 
 	CloseAudioDevice();
 	CloseWindow();
@@ -134,14 +133,26 @@ void InitWorld(void) {
 	b2Vec2 staticsExtent = { 0.5f * TextureLibrary[t_block_idle].width, 0.5f * TextureLibrary[t_block_idle].height };
 
 	// Defining the solid walls
-	b2Vec2 wallExtent = {TextureLibrary[t_wall_left].width * 0.5f, (screenMax.y - screenOrigin.y) / 2};
-	b2Vec2 lPos = {screenOrigin.x + staticsExtent.x, screenOrigin.y + (screenMax.y - screenOrigin.y) / 2};
+	b2Vec2 wallExtent = {
+		TextureLibrary[t_wall_left].width * 0.5f,
+		(screenMax.y - screenOrigin.y) * 0.5f
+	};
+	b2Vec2 lPos = {
+		screenOrigin.x + staticsExtent.x,
+		screenOrigin.y + (screenMax.y - screenOrigin.y) * 0.5f
+	};
+	b2Vec2 rPos = {
+		screenMax.x - staticsExtent.x,
+		screenOrigin.y + (screenMax.y - screenOrigin.y) * 0.5f
+	};
 	leftWall = CreateSolid(lPos, wallExtent, nullptr, PURPLE, worldId);
-	b2Vec2 rPos = {screenMax.x - staticsExtent.x, screenOrigin.y + (screenMax.y - screenOrigin.y) / 2};
 	rightWall = CreateSolid(rPos, wallExtent, nullptr, PURPLE, worldId);
 
 	// Defining the solid ceiling
-	b2Vec2 ceilPos = {screenOrigin.x + ((screenMax.x - screenOrigin.x) / 2), screenOrigin.y + TextureLibrary[t_ceiling_left].height * 0.5f};
+	b2Vec2 ceilPos = {
+		screenOrigin.x + ((screenMax.x - screenOrigin.x) / 2),
+		screenOrigin.y + TextureLibrary[t_ceiling_left].height * 0.5f
+	};
 	b2Vec2 ceilExtent = {((screenMax.x - screenOrigin.x) / 2), TextureLibrary[t_ceiling_left].height * 0.5f };
 	ceiling = CreateSolid(ceilPos, ceilExtent, nullptr, WHITE, worldId);
 
@@ -153,8 +164,6 @@ void InitWorld(void) {
 		Entity box = CreatePhysicsBox((b2Vec2){x, y}, boxExtent, &TextureLibrary[t_box], worldId);
 		boxEntities[i] = box;
 	}
-
-	
 
 	// Create the paddle
 	paddle = CreatePaddle(
@@ -211,8 +220,7 @@ void InitWorld(void) {
 	};
 	pauseMenu = CreatePauseMenu(
 		&gameState, 
-		pauseMenuBounds, 
-		&interfaceAssets);
+		pauseMenuBounds);
 	//printf("Available Width / Height: %.3f / %.3f", innerWidth, innerHeight);
 	level = LoadLevel(levelRooms, innerOrigin, worldId);
 
@@ -403,7 +411,7 @@ void Update(void) {
 	if (gameState.paused == false)
 	{
 		float deltaTime = GetFrameTime();
-		b2World_Step(worldId, deltaTime, 16);
+		b2World_Step(worldId, deltaTime / 1, 16);
 	}
 
 	// #################
@@ -561,7 +569,7 @@ void DrawFrame(void){
 	if (gameState.paused)
 		DrawPauseMenu(pauseMenu);
 	DrawCircle((int)paddleTarget.x, (int)paddleTarget.y, 10.0f, PURPLE);
-	DrawHUD(&gameState, &interfaceAssets, screenBounds);
+	DrawHUD(&gameState, screenBounds);
 	EndMode2D();
 	EndDrawing();
 }

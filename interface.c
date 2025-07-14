@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern Texture TextureLibrary[TextureEnumSize];
+extern Sound SoundLibrary[SoundEnumSize];
+extern Font menuFont;
 /**
  * Transform a Rectangle's values, from percentage of parent's position and size, to world coordinates.
  * @param parent
@@ -101,7 +104,7 @@ void CallCallback(void (*func)(int*),int* arg) {
     (*func)(arg);
 }
 
-PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds, InterfaceAssets* assets) {
+PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds) {
 
     int buttonCount = 1;
     PauseMenu* menu = malloc(sizeof(PauseMenu) + buttonCount * sizeof(Button));
@@ -114,12 +117,11 @@ PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds, InterfaceAsse
 
     Rectangle buttonDimensions = {0, 0, 50, 10};
 
-    Button resume = CreateButton(&foreground, true, buttonDimensions, &assets->menuFont, "Resume", &assets->ui[0], TogglePause, &(gameState->paused));
+    Button resume = CreateButton(&foreground, true, buttonDimensions, &menuFont, "Resume", &TextureLibrary[t_ui_button_color], TogglePause, &(gameState->paused));
     menu->buttons[0] = resume;
 
     menu->gameState = gameState;
     menu->bounds = bounds;
-    menu->assets = assets;
     menu->background = background;
     menu->foreground = foreground;
 
@@ -168,9 +170,10 @@ int * toArray(int number)
 }
 
 
-void DrawHUD(GameState *gameState, InterfaceAssets* assets, Rectangle screenBounds) {
+void DrawHUD(GameState *gameState, Rectangle screenBounds) {
     Vector2 scorePadding = {20, 20};
-    DrawTexture(assets->ui[4], screenBounds.x + scorePadding.x, screenBounds.y + scorePadding.y, WHITE);
+    DrawTexture(TextureLibrary[t_ui_coin], screenBounds.x + scorePadding.x, screenBounds.y + scorePadding.y, WHITE);
+
 
     int* asArray = toArray(gameState->score);
     int numberLength = 1;
@@ -178,52 +181,8 @@ void DrawHUD(GameState *gameState, InterfaceAssets* assets, Rectangle screenBoun
         numberLength = log10(gameState->score) + 1;
     int j = numberLength;
     for (int i = 0; i < numberLength; i++) {
-        DrawTexture(assets->numbers[asArray[i]], screenBounds.x + scorePadding.x + 100 * j, screenBounds.y + scorePadding.y, WHITE);
+        DrawTexture(TextureLibrary[t_ui_number_0 + asArray[i]], screenBounds.x + scorePadding.x + 100 * j, screenBounds.y + scorePadding.y, WHITE);
         j--;
     }
-    
-
-    //DrawTexture(assets->numbers[0], screenBounds.x + 100, screenBounds.y + scorePadding.y, WHITE);
-    //DrawTexture(assets->numbers[1], screenBounds.x + 200, screenBounds.y + scorePadding.y, WHITE);
-    //DrawTexture(assets->numbers[2], screenBounds.x + 300, screenBounds.y + scorePadding.y, WHITE);
-    //DrawTexture(assets->numbers[3], screenBounds.x + 400, screenBounds.y + scorePadding.y, WHITE);
-    //DrawTexture(assets->numbers[4], screenBounds.x + 500, screenBounds.y + scorePadding.y, WHITE);
-    //DrawTexture(assets->numbers[5], screenBounds.x + 600, screenBounds.y + scorePadding.y, WHITE);
-    //DrawTexture(assets->numbers[6], screenBounds.x + 700, screenBounds.y + scorePadding.y, WHITE);
-}
-
-
-
-InterfaceAssets LoadInterfaceAssets(){
-    InterfaceAssets interfaceAssets = { 0 };
-
-    for(int i = 0; i < 10; i++){
-        char path[32];
-        snprintf(path, sizeof(path), "assets/UI/hud_character_%i.png", i);
-        interfaceAssets.numbers[i] = LoadTexture(path);
-    }
-
-    interfaceAssets.ui[0] = LoadTexture("assets/UI/button_color.png");
-	interfaceAssets.ui[1] = LoadTexture("assets/UI/button_gray.png");
-	interfaceAssets.ui[2] = LoadTexture("assets/UI/heart.png");
-	interfaceAssets.ui[3] = LoadTexture("assets/UI/heart_empty.png");
-	interfaceAssets.ui[4] = LoadTexture("assets/UI/coin.png");
-    interfaceAssets.ui[5] = LoadTexture("assets/UI/star.png");
-    interfaceAssets.ui[6] = LoadTexture("assets/UI/star_outline.png");
-
-
-    interfaceAssets.menuFont = LoadFont("assets/UI/Kenney Future Narrow.ttf");
-    return interfaceAssets;
-}
-
-void UnloadInterfaceAssets(InterfaceAssets assets){
-    for(int i = 0; i < 10; i++){
-        UnloadTexture(assets.numbers[i]);
-    }
-
-    for(int i = 0; i < 7; i++){
-        UnloadTexture(assets.ui[i]);
-    }
-
-    UnloadFont(assets.menuFont);
+    free(asArray);
 }

@@ -23,6 +23,23 @@ enum TextureEnum {
     t_paddle_left,
     t_paddle_mid,
     t_paddle_right,
+    t_ui_number_0,
+    t_ui_number_1,
+    t_ui_number_2,
+    t_ui_number_3,
+    t_ui_number_4,
+    t_ui_number_5,
+    t_ui_number_6,
+    t_ui_number_7,
+    t_ui_number_8,
+    t_ui_number_9,
+    t_ui_button_gray,
+    t_ui_button_color,
+    t_ui_heart,
+    t_ui_heart_empty,
+    t_ui_coin,
+    t_ui_star,
+    t_ui_star_empty,
     TextureEnumSize
 };
 

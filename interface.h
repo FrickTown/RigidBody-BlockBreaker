@@ -44,17 +44,14 @@ typedef struct PauseMenu {
     Rectangle bounds;
     Container background;
     Container foreground;
-    InterfaceAssets* assets;
     int buttonCount;
     Button buttons[];
 } PauseMenu;
 
-PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds, InterfaceAssets* InterfaceAssets);
+PauseMenu* CreatePauseMenu(GameState* gameState, Rectangle bounds);
 void DrawPauseMenu(PauseMenu* pauseMenu);
 void PauseMenuHandleClick(PauseMenu* pauseMenu, Vector2 mousePos);
 
-void DrawHUD(GameState* gameState, InterfaceAssets* assets, Rectangle screenBounds);
-
-
+void DrawHUD(GameState* gameState, Rectangle screenBounds);
 
 #endif //INTERFACE_H

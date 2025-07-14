@@ -31,6 +31,25 @@ void LoadAssetLibraries(){
 	TextureLibrary[t_paddle_left] = LoadTexture("assets/paddleL.png");
 	TextureLibrary[t_paddle_mid] = LoadTexture("assets/paddleMid.png");
 	TextureLibrary[t_paddle_right] = LoadTexture("assets/paddleR.png");
+
+	TextureLibrary[t_ui_number_0] = LoadTexture("assets/UI/hud_character_0.png");
+	TextureLibrary[t_ui_number_1] = LoadTexture("assets/UI/hud_character_1.png");
+	TextureLibrary[t_ui_number_2] = LoadTexture("assets/UI/hud_character_2.png");
+	TextureLibrary[t_ui_number_3] = LoadTexture("assets/UI/hud_character_3.png");
+	TextureLibrary[t_ui_number_4] = LoadTexture("assets/UI/hud_character_4.png");
+	TextureLibrary[t_ui_number_5] = LoadTexture("assets/UI/hud_character_5.png");
+	TextureLibrary[t_ui_number_6] = LoadTexture("assets/UI/hud_character_6.png");
+	TextureLibrary[t_ui_number_7] = LoadTexture("assets/UI/hud_character_7.png");
+	TextureLibrary[t_ui_number_8] = LoadTexture("assets/UI/hud_character_8.png");
+	TextureLibrary[t_ui_number_9] = LoadTexture("assets/UI/hud_character_9.png");
+
+	TextureLibrary[t_ui_button_color] = LoadTexture("assets/UI/button_color.png");
+	TextureLibrary[t_ui_button_gray] = LoadTexture("assets/UI/button_gray.png");
+	TextureLibrary[t_ui_heart] = LoadTexture("assets/UI/heart.png");
+	TextureLibrary[t_ui_heart_empty] = LoadTexture("assets/UI/heart_empty.png");
+	TextureLibrary[t_ui_coin] = LoadTexture("assets/UI/coin.png");
+	TextureLibrary[t_ui_star] = LoadTexture("assets/UI/star.png");
+	TextureLibrary[t_ui_star_empty] = LoadTexture("assets/UI/star_outline.png");
     
     SoundLibrary[s_paddle_1] = LoadSound("assets/paddle1.ogg");
 	SoundLibrary[s_paddle_2] = LoadSound("assets/paddle2.ogg");
